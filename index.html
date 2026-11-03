@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>アースライン 作業実績</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --ink: #1d2433; --sub: #5f6b7a; --line: #dfe3e8;
+    --accent: #0b6bcb; --accent-weak: #e6f0fb; --ok: #1e8e4e; --ok-weak: #e5f5ec;
+    --warn: #b26a00; --warn-weak: #fff3dd; --ng: #c62828; --ng-weak: #fdeaea;
+    --ok-ink: #145c34; --warn-ink: #6b4300; --ng-ink: #8a1c1c; --field: #fff; --scrim: rgba(255,255,255,.6);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #12161d; --card: #1b212b; --ink: #e6eaf0; --sub: #9aa6b5; --line: #2e3744;
+    --accent: #5aa7f0; --accent-weak: #1a2e45; --ok: #5cc98a; --ok-weak: #173325;
+    --warn: #e0a64a; --warn-weak: #3a2c12; --ng: #f07a7a; --ng-weak: #3d1b1b;
+    --ok-ink: #a6e6c0; --warn-ink: #f3d39b; --ng-ink: #f6b4b4; --field: #141a22; --scrim: rgba(0,0,0,.5); color-scheme: dark; } }
+  :root[data-theme="dark"] {
+    --bg: #12161d; --card: #1b212b; --ink: #e6eaf0; --sub: #9aa6b5; --line: #2e3744;
+    --accent: #5aa7f0; --accent-weak: #1a2e45; --ok: #5cc98a; --ok-weak: #173325;
+    --warn: #e0a64a; --warn-weak: #3a2c12; --ng: #f07a7a; --ng-weak: #3d1b1b;
+    --ok-ink: #a6e6c0; --warn-ink: #f3d39b; --ng-ink: #f6b4b4; --field: #141a22; --scrim: rgba(0,0,0,.5); color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif; font-size: 16px; }
+  body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--card); border-bottom: 1px solid var(--line);
+    padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  header .t { font-weight: 700; font-size: 15px; }
+  header .who { font-size: 13px; color: var(--sub); text-align: right; }
+  main { max-width: 560px; margin: 0 auto; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--card); }
+  h2 { font-size: 19px; margin: 4px 0 12px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; color: var(--sub); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .muted { color: var(--sub); font-size: 14px; }
+  .big { font-size: 22px; font-weight: 700; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  button, .btn { font: inherit; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    padding: 12px 14px; min-height: 48px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  button:disabled { opacity: .5; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .primary { background: var(--accent); border-color: var(--accent); color: var(--card); font-weight: 700; width: 100%; font-size: 18px; min-height: 56px; }
+  .quick { width: 100%; text-align: left; display: block; background: var(--accent-weak); border: 2px solid var(--accent); padding: 14px; }
+  .quick b { display: block; font-size: 18px; color: var(--accent); margin-bottom: 4px; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+  .seg button.on, .chip.on { background: var(--accent); border-color: var(--accent); color: var(--card); font-weight: 700; }
+  .chip { min-height: 44px; padding: 8px 12px; font-size: 15px; }
+  label { display: block; font-size: 14px; color: var(--sub); margin: 14px 0 6px; }
+  input, select, textarea { font: inherit; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); min-height: 48px; }
+  .amount { font-size: 22px; font-weight: 700; text-align: right; }
+  .badge { font-size: 12px; padding: 3px 8px; border-radius: 99px; white-space: nowrap; font-weight: 700; }
+  .b-登録済 { background: var(--warn-weak); color: var(--warn); }
+  .b-承認済 { background: var(--ok-weak); color: var(--ok); }
+  .b-差戻 { background: var(--ng-weak); color: var(--ng); }
+  .b-請求済, .b-提出済 { background: var(--accent-weak); color: var(--accent); }
+  .item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .item:last-child { border-bottom: 0; }
+  .alert { border-radius: 10px; padding: 12px; margin-bottom: 12px; font-size: 15px; }
+  .alert.warn { background: var(--warn-weak); color: var(--warn-ink); }
+  .alert.ng { background: var(--ng-weak); color: var(--ng-ink); }
+  .alert.ok { background: var(--ok-weak); color: var(--ok-ink); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  td.r { text-align: right; white-space: nowrap; }
+  nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line);
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding-bottom: env(safe-area-inset-bottom); z-index: 5; }
+  nav button { border: 0; border-radius: 0; min-height: 64px; font-size: 13px; flex-direction: column; gap: 2px; color: var(--sub); background: none; }
+  nav button .i { font-size: 20px; }
+  nav button.on { color: var(--accent); font-weight: 700; }
+  .check { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .check input { width: 26px; height: 26px; min-height: 0; flex: none; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; z-index: 20; }
+  .sheet { background: var(--card); width: 100%; max-width: 560px; border-radius: 16px 16px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet .row button { flex: 1; }
+  .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #222; color: #fff; padding: 12px 18px;
+    border-radius: 10px; z-index: 30; font-size: 15px; max-width: 90%; }
+  .loading { position: fixed; inset: 0; background: var(--scrim); display: flex; align-items: center; justify-content: center; z-index: 25; font-weight: 700; }
+  iframe.inv { width: 100%; height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .persona { width: 100%; text-align: left; margin-bottom: 8px; display: block; }
+  .persona small { display: block; color: var(--sub); margin-top: 2px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header><div class="t">アースライン 作業実績</div><div class="who" id="who"></div></header>
+<main id="app"><div class="card">読み込み中…</div></main>
+<nav id="nav" class="hidden"></nav>
+<div id="overlay"></div>
+<div id="busy"></div>
+
+<script>
+/* ===== 設定（GitHub Pages に置くときだけ書き換える） ===== */
+const CONFIG = {
+  API_URL: 'https://script.google.com/macros/s/AKfycbxRvk9DxxnpL0LxUWhCayBxz6WjxTpcy5WLa9w9c8HUYlbFLrYYygqlNbXMEV5vhmgy/exec',          // GASウェブアプリのURL（https://script.google.com/macros/s/……/exec）
+  LIFF_ID: '2012354614-iopgXgnC',          // LIFF ID（例：2001234567-AbCdEfGh）
+  SEND_CHAT_MESSAGE: true, // 作業登録後、LINEのトークに登録内容を送る（LINE内で開いたときのみ）
+};
+
+/* ===== 状態 ===== */
+const S = { mode: '', idToken: '', demoUser: '', me: null, tab: '', busy: false, sites: null,
+  form: null, month: {}, inv: null, showInv: false, profile: null };
+
+const DEMO_PERSONAS = [
+  { id: 'DEMO-OY001', name: '山田 太郎', desc: '一人親方（登録番号あり・いろいろな現場に行く）' },
+  { id: 'DEMO-OY002', name: '高橋 次郎', desc: '一人親方（免税・毎日同じ現場）' },
+  { id: 'DEMO-NEW-' + Math.random().toString(36).slice(2, 7), name: '新しい一人親方', desc: 'まだ登録していない人（新規登録を試す）' },
+  { id: 'DEMO-ST001', name: '佐藤 健一', desc: '現場責任者（〇〇邸・△△マンション担当）' },
+  { id: 'DEMO-ST002', name: '鈴木 誠', desc: '現場責任者（□□小学校・××工場担当）' },
+  { id: 'DEMO-ST003', name: '田中 美咲', desc: '事務員（全現場の承認・親方の有効化・請求書の一覧）' },
+];
+
+/* ===== 道具 ===== */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const yen = (n) => Number(n || 0).toLocaleString('ja-JP') + '円';
+const pad = (n) => ('0' + n).slice(-2);
+const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const today = () => ymd(new Date());
+const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return ymd(d); };
+const thisMonth = () => today().slice(0, 7);
+const addMonth = (ym, n) => { const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
+const jpDate = (s) => { const d = new Date(s + 'T00:00:00'); return (d.getMonth() + 1) + '/' + d.getDate() + '（' + '日月火水木金土'[d.getDay()] + '）'; };
+const jpMonth = (ym) => Number(ym.slice(0, 4)) + '年' + Number(ym.slice(5, 7)) + '月';
+const unitText = (w) => w.kind === '請負' ? '請負（一式）' : (w.unit === '時間' ? w.hours + '時間' : w.unit);
+
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2800);
+}
+function loading(on) { $('busy').innerHTML = on ? '<div class="loading">通信中…</div>' : ''; }
+function modal(html) { $('overlay').innerHTML = '<div class="modal" id="mbg"><div class="sheet">' + html + '</div></div>';
+  $('mbg').addEventListener('click', e => { if (e.target.id === 'mbg') closeModal(); }); }
+function closeModal() { $('overlay').innerHTML = ''; }
+
+/* ===== サーバーとの通信 ===== */
+function api(action, params) {
+  const body = Object.assign({ action }, params || {});
+  if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = S.idToken;
+  const p = S.mode === 'gas'
+    ? new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).api(body))
+    : fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
+  return p.then(r => { if (!r || !r.ok) throw new Error((r && r.error) || '通信に失敗しました'); return r.data; });
+}
+// 通信中は画面全体を覆って二重押しを防ぐ。処理の中から次の画面を読み込む（入れ子の）呼び出しはそのまま実行する
+async function run(fn) {
+  const outer = !S.busy;
+  if (outer) { S.busy = true; loading(true); }
+  try { return await fn(); }
+  catch (e) { closeModal(); toast(e.message || String(e)); console.warn(e); }
+  finally { if (outer) { S.busy = false; loading(false); } }
+}
+
+/* ===== 起動 ===== */
+async function boot() {
+  const q = new URLSearchParams(location.search);
+  if (window.google && google.script && google.script.run) S.mode = 'gas';
+  else S.mode = 'liff';
+
+  if (S.mode === 'liff') {
+    if (!CONFIG.API_URL || !CONFIG.LIFF_ID) return fatal('index.html の CONFIG（API_URL と LIFF_ID）を設定してください。');
+    try {
+      await loadScript('https://static.line-scdn.net/liff/edge/2/sdk.js');
+      await liff.init({ liffId: CONFIG.LIFF_ID });
+      if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+      S.idToken = liff.getIDToken();
+      if (!S.idToken) return fatal('LINEの本人確認ができませんでした。LIFFの設定で「openid」を有効にしてください。');
+    } catch (e) { return fatal('LINEとの接続に失敗しました：' + e.message); }
+    S.tab = new URLSearchParams(location.search).get('page') || q.get('page') || ''; // リッチメニューの ?page=… （init後に読む）
+    return start();
+  }
+  showPersonas();
+}
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.charset = 'utf-8'; s.onload = res; s.onerror = () => rej(new Error('読み込み失敗')); document.head.appendChild(s); });
+}
+function fatal(msg) { $('app').innerHTML = '<div class="alert ng">' + esc(msg) + '</div>'; }
+
+function showPersonas() {
+  S.demoUser = ''; S.me = null; $('nav').classList.add('hidden'); $('who').textContent = 'デモモード';
+  $('app').innerHTML = '<h2>デモ：誰として操作しますか？</h2>' +
+    '<p class="muted">名前・現場はすべて架空のサンプルです。上の「切替」でいつでも別の人に変えられます。' +
+    (window.DEMO_HOOKS ? 'データはこの画面の中だけで、ページを開き直すと最初の状態に戻ります。' : '') + '</p>' +
+    DEMO_PERSONAS.map(p => '<button class="persona" data-p="' + esc(p.id) + '"><b>' + esc(p.name) + '</b><small>' + esc(p.desc) + '</small></button>').join('');
+  document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { S.demoUser = b.dataset.p; S.tab = ''; S.sites = null; S.month = {}; start(); });
+}
+
+async function start() {
+  await run(async () => { S.me = await api('me'); });
+  if (!S.me) return;
+  render();
+}
+
+/* ===== 画面の切り替え ===== */
+function tabsFor(me) {
+  const t = [];
+  if (me.oyakata && me.oyakata.status === '有効') t.push(['work', '✏️', '作業登録'], ['list', '📋', '今月の実績'], ['invoice', '🧾', '請求書']);
+  if (me.staff) t.push(['approve', '✅', '承認']);
+  if (me.staff && me.staff.role === '事務') t.push(['admin', '🗂️', '管理']);
+  if (me.oyakata) t.push(['profile', '👤', '登録情報']);
+  return t;
+}
+function render() {
+  const me = S.me;
+  const names = [me.oyakata && me.oyakata.name, me.staff && me.staff.name].filter(Boolean);
+  $('who').innerHTML = esc(names.join(' / ') || '未登録') +
+    (S.demoUser ? ' <button class="chip" id="switch" style="min-height:32px;padding:4px 10px;margin-left:6px">切替</button>' : '');
+  if (S.demoUser) $('switch').onclick = showPersonas;
+  const tabs = tabsFor(me);
+  if (!tabs.length) { $('nav').classList.add('hidden'); return pageWelcome(); }
+  if (!tabs.some(t => t[0] === S.tab)) S.tab = tabs[0][0];
+  const nav = $('nav');
+  nav.classList.toggle('hidden', tabs.length < 2);
+  nav.innerHTML = tabs.map(t => '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '"><span class="i">' + t[1] + '</span>' + t[2] + '</button>').join('');
+  nav.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.showInv = false; render(); });
+  ({ work: pageWork, list: pageList, invoice: pageInvoice, approve: pageApprove, admin: pageAdmin, profile: pageProfile })[S.tab]();
+  window.scrollTo(0, 0);
+}
+
+/* ===== 未登録の人 ===== */
+function pageWelcome() {
+  $('app').innerHTML = '<h2>はじめに登録をお願いします</h2>' +
+    '<div class="card"><b>一人親方の方</b><p class="muted">氏名・住所・振込先などを一度だけ登録します。事務の確認後に使えるようになります。</p>' +
+    '<button class="primary" id="goReg">新規登録する</button></div>' +
+    '<div class="card"><b>アースラインの職員の方</b><p class="muted">事務から受け取った6桁の招待コードを入力してください。</p>' +
+    '<input id="code" inputmode="numeric" maxlength="6" placeholder="例：123456"><div style="height:8px"></div>' +
+    '<button id="goCode" style="width:100%">職員として登録</button></div>';
+  $('goReg').onclick = () => { S.tab = 'profile'; pageProfile(); };
+  $('goCode').onclick = () => run(async () => {
+    const r = await api('linkStaff', { code: $('code').value.trim() });
+    toast(r.name + ' として登録しました'); S.me = await api('me'); S.tab = ''; render();
+  });
+}
+
+/* ===== 一人親方：作業登録 ===== */
+async function pageWork() {
+  $('app').innerHTML = '<div class="card">読み込み中…</div>';
+  if (!S.sites) { await run(async () => { S.sites = await api('sites'); }); if (!S.sites || !S.me) return; }
+  const last = S.sites.last;
+  if (!S.form) S.form = { date: today(), siteId: last ? last.siteId : '', kind: last ? last.kind : '応援',
+    unit: last ? ({ '1日': 'day', '半日': 'half', '時間': 'hour' }[last.unit] || 'day') : 'day', hours: last && last.hours ? last.hours : '', amount: '', amountEdited: false, note: '', filter: '' };
+  drawWork();
+}
+function rateFor(f) {
+  const o = S.me.oyakata;
+  if (f.kind === '請負') return '';
+  if (f.unit === 'day') return o.rateDay;
+  if (f.unit === 'half') return o.rateHalf;
+  return f.hours ? Math.round(o.rateHour * Number(f.hours)) : '';
+}
+function drawWork() {
+  const f = S.form, d = S.sites, last = d.last;
+  if (!f.amountEdited) f.amount = rateFor(f);
+  const siteName = (id) => (d.sites.find(s => s.id === id) || {}).name || '';
+  const recent = d.recent.map(id => d.sites.find(s => s.id === id)).filter(Boolean);
+  const filtered = d.sites.filter(s => !f.filter || (s.name + s.short).indexOf(f.filter) >= 0);
+  let h = '<h2>作業を登録</h2>';
+  if (last) {
+    h += '<button class="quick" id="quick"><b>前回と同じ内容で今日を登録</b>' +
+      esc(jpDate(today())) + '　' + esc(last.siteName) + '<br>' + esc(last.kind === '請負' ? '請負' : (last.unit === '時間' ? last.hours + '時間' : last.unit)) + '　' + esc(yen(last.amount)) + '</button>' +
+      '<p class="muted" style="text-align:center;margin:10px 0 4px">違う内容のときは下で入力</p>';
+  }
+  h += '<div class="card">' +
+    '<label>作業日</label><div class="seg">' +
+    '<button data-date="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日 ' + esc(jpDate(today())) + '</button>' +
+    '<button data-date="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日</button></div>' +
+    '<div style="height:8px"></div><input type="date" id="date" value="' + esc(f.date) + '" max="' + today() + '">' +
+    '<label>現場</label>' +
+    (recent.length ? '<div class="row" style="margin-bottom:8px">' + recent.map(s => '<button class="chip ' + (f.siteId === s.id ? 'on' : '') + '" data-site="' + esc(s.id) + '">' + esc(s.short) + '</button>').join('') + '</div>' : '') +
+    (d.sites.length > 8 ? '<input id="filter" placeholder="現場名で絞り込み" value="' + esc(f.filter) + '"><div style="height:8px"></div>' : '') +
+    '<select id="site"><option value="">現場を選んでください</option>' + filtered.map(s => '<option value="' + esc(s.id) + '"' + (f.siteId === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') + '</select>' +
+    '<p class="muted" style="margin:6px 0 0">現場が見つからないときは事務へ連絡してください。</p>' +
+    '<label>区分</label><div class="seg">' + ['応援', '請負'].map(k => '<button data-kind="' + k + '" class="' + (f.kind === k ? 'on' : '') + '">' + k + '</button>').join('') + '</div>';
+  if (f.kind === '応援') {
+    h += '<label>作業量</label><div class="seg">' + [['day', '1日'], ['half', '半日'], ['hour', '時間']].map(u => '<button data-unit="' + u[0] + '" class="' + (f.unit === u[0] ? 'on' : '') + '">' + u[1] + '</button>').join('') + '</div>';
+    if (f.unit === 'hour') h += '<label>時間数</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：3">';
+  }
+  h += '<label>金額（税抜）' + (f.kind === '応援' ? '　<span class="muted">登録単価から自動計算・変更もできます</span>' : '') + '</label>' +
+    '<input id="amount" class="amount" type="number" inputmode="numeric" value="' + esc(f.amount) + '" placeholder="' + (f.kind === '請負' ? '請負金額を入力' : '') + '">' +
+    '<label>作業内容（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '" placeholder="例：2階給水配管">' +
+    '<div style="height:16px"></div><button class="primary" id="save">登録する</button></div>';
+  $('app').innerHTML = h;
+
+  if (last) $('quick').onclick = () => saveWork({ date: today(), siteId: last.siteId, kind: last.kind,
+    unit: { '1日': 'day', '半日': 'half', '時間': 'hour' }[last.unit], hours: last.hours, amount: last.amount }, last.siteName);
+  document.querySelectorAll('[data-date]').forEach(b => b.onclick = () => { f.date = b.dataset.date; drawWork(); });
+  $('date').onchange = (e) => { f.date = e.target.value; drawWork(); };
+  document.querySelectorAll('[data-site]').forEach(b => b.onclick = () => { f.siteId = b.dataset.site; drawWork(); });
+  $('site').onchange = (e) => { f.siteId = e.target.value; };
+  if ($('filter')) $('filter').oninput = (e) => { f.filter = e.target.value; const pos = e.target.selectionStart; drawWork(); $('filter').focus(); $('filter').setSelectionRange(pos, pos); };
+  document.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { f.kind = b.dataset.kind; f.amountEdited = false; drawWork(); });
+  document.querySelectorAll('[data-unit]').forEach(b => b.onclick = () => { f.unit = b.dataset.unit; f.amountEdited = false; drawWork(); });
+  if ($('hours')) $('hours').oninput = (e) => { f.hours = e.target.value; if (!f.amountEdited) { f.amount = rateFor(f); $('amount').value = f.amount; } };
+  $('amount').oninput = (e) => { f.amount = e.target.value; f.amountEdited = true; };
+  $('note').oninput = (e) => { f.note = e.target.value; };
+  $('save').onclick = () => {
+    if (!f.siteId) return toast('現場を選んでください');
+    if (f.kind === '請負' && !f.amount) return toast('請負金額を入力してください');
+    if (f.kind === '応援' && f.unit === 'hour' && !f.hours) return toast('時間数を入力してください');
+    saveWork({ date: f.date, siteId: f.siteId, kind: f.kind, unit: f.unit, hours: f.hours, amount: f.amount, note: f.note }, siteName(f.siteId));
+  };
+}
+function saveWork(p, siteName, force) {
+  run(async () => {
+    const r = await api('addWork', Object.assign({}, p, force ? { force: true } : {}));
+    if (r.duplicate) {
+      modal('<h3 style="margin-top:0;color:var(--ink)">同じ日・同じ現場の登録があります</h3><p>' + esc(r.message) + '</p>' +
+        '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">登録する</button></div>');
+      $('mNo').onclick = closeModal;
+      $('mYes').onclick = () => { closeModal(); saveWork(p, siteName, true); };
+      return;
+    }
+    S.sites = null; S.form = null; delete S.month.list;
+    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.unit === '時間' ? r.hours + '時間' : r.unit) + ' ' + yen(r.amount);
+    $('app').innerHTML = '<div class="alert ok" style="font-size:17px"><b>登録しました</b><br>' + esc(text.replace('【作業登録】', '')) + '</div>' +
+      '<button class="primary" id="again">続けて登録する</button><div style="height:8px"></div>' +
+      '<button style="width:100%" id="toList">今月の実績を見る</button>' +
+      (S.mode === 'liff' ? '<div style="height:8px"></div><button style="width:100%" id="close">閉じる</button>' : '');
+    $('again').onclick = () => pageWork();
+    $('toList').onclick = () => { S.tab = 'list'; render(); };
+    if ($('close')) $('close').onclick = () => liff.closeWindow();
+    if (S.mode === 'liff' && CONFIG.SEND_CHAT_MESSAGE && liff.isInClient()) {
+      try { await liff.sendMessages([{ type: 'text', text: text }]); } catch (e) { console.warn('sendMessages', e); }
+    }
+  });
+}
+
+/* ===== 一人親方：今月の実績 ===== */
+function monthNav(key, def, onChange) {
+  if (!S.month[key]) S.month[key] = def;
+  const m = S.month[key];
+  return { m, html: '<div class="between" style="margin-bottom:12px"><button id="mPrev">◀ 前の月</button><b style="font-size:18px">' + jpMonth(m) + '</b>' +
+    '<button id="mNext"' + (m >= thisMonth() ? ' disabled' : '') + '>次の月 ▶</button></div>',
+    bind: () => { $('mPrev').onclick = () => { S.month[key] = addMonth(m, -1); onChange(); }; $('mNext').onclick = () => { S.month[key] = addMonth(m, 1); onChange(); }; } };
+}
+async function pageList() {
+  const nav = monthNav('list', thisMonth(), pageList);
+  let data;
+  await run(async () => { data = await api('listWork', { month: nav.m }); });
+  if (!data) return;
+  let h = '<h2>実績の一覧</h2>' + nav.html +
+    '<div class="card between"><span>合計（税抜・' + data.rows.length + '件）</span><span class="big">' + yen(data.total) + '</span></div>';
+  const rej = data.rows.filter(r => r.status === '差戻').length;
+  if (rej) h += '<div class="alert ng">差戻が' + rej + '件あります。理由を確認し、取り消して登録し直してください。</div>';
+  h += '<div class="card">' + (data.rows.length ? data.rows.map(r =>
+    '<div class="item"><div class="between"><b>' + esc(jpDate(r.date)) + '</b><span class="badge b-' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
+    '<div>' + esc(r.siteName) + '</div><div class="between"><span class="muted">' + esc(unitText(r)) + (r.note ? '・' + esc(r.note) : '') + '</span><b>' + esc(yen(r.amount)) + '</b></div>' +
+    (r.status === '差戻' ? '<div class="alert ng" style="margin:8px 0 0">差戻理由：' + esc(r.reason) + '</div>' : '') +
+    ((r.status === '登録済' || r.status === '差戻') ? '<div style="text-align:right;margin-top:6px"><button class="chip" data-cancel="' + esc(r.id) + '">取り消す</button></div>' : '') +
+    '</div>').join('') : '<p class="muted">この月の登録はありません。</p>') + '</div>' +
+    '<p class="muted">承認前の実績は取り消して登録し直せます。承認済みの修正は事務へ連絡してください。</p>';
+  $('app').innerHTML = h;
+  nav.bind();
+  document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
+    const r = data.rows.find(x => x.id === b.dataset.cancel);
+    modal('<p style="margin-top:0">' + esc(jpDate(r.date) + ' ' + r.siteName + ' ' + unitText(r)) + ' を取り消しますか？</p>' +
+      '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto;background:var(--ng);border-color:var(--ng)">取り消す</button></div>');
+    $('mNo').onclick = closeModal;
+    $('mYes').onclick = () => run(async () => { await api('cancelWork', { id: r.id }); closeModal(); S.sites = null; toast('取り消しました'); pageList(); });
+  });
+}
+
+/* ===== 一人親方：請求書 ===== */
+async function pageInvoice() {
+  const nav = monthNav('invoice', addMonth(thisMonth(), -1), () => { S.showInv = false; pageInvoice(); });
+  let d;
+  await run(async () => { d = await api('invoicePreview', { month: nav.m }); });
+  if (!d) return;
+  let h = '<h2>請求書</h2>' + nav.html;
+  if (d.submitted) {
+    h += '<div class="alert ok"><b>提出済み</b>（' + esc(d.submittedAt) + '）<br>請求書番号：' + esc(d.invoiceId) + '</div>';
+    if (d.newApproved || d.unapproved) h += '<div class="alert warn">提出後に承認された実績や未承認の実績があります。翌月の請求に含めるか事務へ相談してください。</div>';
+  } else if (!d.count) {
+    h += '<div class="card"><p>この月の承認済みの実績はまだありません。</p>' + (d.unapproved ? '<p class="muted">未承認：' + d.unapproved + '件（現場責任者の承認待ち）</p>' : '') + '</div>';
+    $('app').innerHTML = h; nav.bind(); return;
+  } else if (d.unapproved) {
+    h += '<div class="alert warn">未承認の実績が' + d.unapproved + '件あります。請求書には承認済みの分だけが入ります。承認を待つ場合は、提出せずに待ってください。</div>';
+  }
+  h += '<div class="card"><table>' + d.bySite.map(s => '<tr><td>' + esc(s.siteName) + '<div class="muted">' + (s.days ? s.days + '日' : '') + '（' + s.count + '件）</div></td><td class="r">' + esc(yen(s.amount)) + '</td></tr>').join('') +
+    '<tr><td>小計（税抜）</td><td class="r">' + esc(yen(d.subtotal)) + '</td></tr><tr><td>消費税（10%）</td><td class="r">' + esc(yen(d.tax)) + '</td></tr>' +
+    '<tr><td><b>ご請求金額</b></td><td class="r big">' + esc(yen(d.total)) + '</td></tr></table></div>' +
+    '<button style="width:100%" id="toggle">' + (S.showInv ? '請求書のイメージを閉じる' : '請求書のイメージを見る') + '</button>' +
+    (S.showInv ? '<div style="height:8px"></div><iframe class="inv" id="invf"></iframe>' : '') +
+    (!d.submitted ? '<div style="height:12px"></div><button class="primary" id="submit">この内容で請求書を提出する</button>' +
+      '<p class="muted">提出すると、アースライン指定の書式でPDFが作られ、事務に届きます。</p>' : '');
+  $('app').innerHTML = h;
+  nav.bind();
+  if (S.showInv) $('invf').srcdoc = d.html;
+  $('toggle').onclick = () => { S.showInv = !S.showInv; pageInvoice(); };
+  if ($('submit')) $('submit').onclick = () => {
+    modal('<p style="margin-top:0"><b>' + esc(jpMonth(nav.m)) + '分 ' + esc(yen(d.total)) + '</b> の請求書を提出します。提出後は変更できません。よろしいですか？</p>' +
+      '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">提出する</button></div>');
+    $('mNo').onclick = closeModal;
+    $('mYes').onclick = () => run(async () => { const r = await api('submitInvoice', { month: nav.m }); closeModal(); toast('提出しました（' + r.invoiceId + '）'); pageInvoice(); });
+  };
+}
+
+/* ===== 一人親方：登録情報 ===== */
+async function pageProfile() {
+  const isNew = !S.me.oyakata;
+  let p = {};
+  if (!isNew) { await run(async () => { p = await api('profile'); }); if (!p || !S.me) return; }
+  const v = (k) => esc(p[k] === undefined || p[k] === null || p[k] === 0 ? '' : p[k]);
+  const field = (id, label, attrs, val) => '<label for="' + id + '">' + label + '</label><input id="' + id + '" ' + (attrs || '') + ' value="' + (val || '') + '">';
+  let h = '<h2>' + (isNew ? '一人親方の新規登録' : '登録情報') + '</h2>';
+  if (!isNew && p.status === '申請中') h += '<div class="alert warn">事務の確認待ちです。確認が終わると作業の登録ができるようになります。</div>';
+  h += '<div class="card"><b>請求書に載る情報</b>' +
+    field('name', '氏名 *', 'maxlength="40" autocomplete="name"', v('name')) +
+    field('kana', 'フリガナ', 'maxlength="40"', v('kana')) +
+    field('trade', '屋号（あれば）', 'maxlength="40"', v('trade')) +
+    '<label for="zip">郵便番号</label><div class="row"><input id="zip" inputmode="numeric" maxlength="8" style="flex:1" value="' + v('zip') + '" placeholder="例：123-4567">' + (window.DEMO_HOOKS ? '' : '<button id="zipBtn">住所を検索</button>') + '</div>' +
+    field('address', '住所 *', 'maxlength="120"', v('address')) +
+    field('tel', '電話番号 *', 'inputmode="tel" maxlength="20"', v('tel')) +
+    field('invoiceNo', 'インボイス登録番号（ある方のみ）', 'maxlength="14" placeholder="T1234567890123"', v('invoiceNo')) + '</div>' +
+    '<div class="card"><b>単価（税抜）</b><p class="muted" style="margin:4px 0 0">作業登録のときに金額が自動で入ります。</p>' +
+    '<div class="row"><div style="flex:1">' + field('rateDay', '1日', 'type="number" inputmode="numeric"', v('rateDay')) + '</div>' +
+    '<div style="flex:1">' + field('rateHalf', '半日', 'type="number" inputmode="numeric"', v('rateHalf')) + '</div>' +
+    '<div style="flex:1">' + field('rateHour', '1時間', 'type="number" inputmode="numeric"', v('rateHour')) + '</div></div></div>' +
+    '<div class="card"><b>振込先</b>' + (!isNew ? '<p class="muted" style="margin:4px 0 0">現在：' + v('bankName') + ' ' + v('branch') + ' ' + v('accountType') + ' ****' + v('accountLast4') + '<br>変更するときだけ入力してください。</p>' : '') +
+    field('bankName', '銀行名' + (isNew ? ' *' : ''), 'maxlength="30"', '') +
+    field('branch', '支店名' + (isNew ? ' *' : ''), 'maxlength="30"', '') +
+    '<label>口座種別</label><select id="accountType"><option>普通</option><option>当座</option></select>' +
+    field('accountNo', '口座番号（7桁）' + (isNew ? ' *' : ''), 'inputmode="numeric" maxlength="7"', '') +
+    field('accountHolder', '口座名義（カナ）' + (isNew ? ' *' : ''), 'maxlength="40"', '') + '</div>' +
+    (isNew ? '<div class="card"><label class="check" style="color:var(--ink);border:0;margin:0"><input type="checkbox" id="agree"><span>入力した情報を、請求書の作成とお支払いのために株式会社アースラインが利用することに同意します</span></label></div>' : '') +
+    '<button class="primary" id="saveP">' + (isNew ? '登録を申請する' : '変更を保存する') + '</button>' +
+    (isNew ? '<div style="height:8px"></div><button style="width:100%" id="back">戻る</button>' : '') +
+    (!isNew && !S.me.staff ? '<div class="card" style="margin-top:24px"><b>アースラインの職員の方</b><p class="muted">事務から受け取った6桁の招待コードを入力すると、承認などの画面が使えるようになります。</p>' +
+      '<input id="code" inputmode="numeric" maxlength="6" placeholder="例：123456"><div style="height:8px"></div><button style="width:100%" id="goCode">職員として登録</button></div>' : '');
+  $('app').innerHTML = h;
+  if ($('goCode')) $('goCode').onclick = () => run(async () => {
+    const r = await api('linkStaff', { code: $('code').value.trim() });
+    toast(r.name + ' として登録しました'); S.me = await api('me'); S.tab = ''; render();
+  });
+  if ($('back')) $('back').onclick = () => render();
+  if ($('zipBtn')) $('zipBtn').onclick = async () => {
+    const z = $('zip').value.replace(/[^0-9]/g, '');
+    if (z.length !== 7) return toast('郵便番号を7桁で入力してください');
+    try {
+      const r = await fetch('https://zipcloud.ibsnet.co.jp/api/search?zipcode=' + z).then(x => x.json());
+      const a = r.results && r.results[0];
+      if (!a) return toast('住所が見つかりませんでした');
+      $('address').value = a.address1 + a.address2 + a.address3; $('address').focus();
+    } catch (e) { toast('住所の検索に失敗しました。手で入力してください'); }
+  };
+  $('saveP').onclick = () => run(async () => {
+    const g = (id) => $(id) ? $(id).value.trim() : '';
+    const body = { name: g('name'), kana: g('kana'), trade: g('trade'), zip: g('zip'), address: g('address'), tel: g('tel'), invoiceNo: g('invoiceNo'),
+      rateDay: g('rateDay'), rateHalf: g('rateHalf'), rateHour: g('rateHour'),
+      bankName: g('bankName'), branch: g('branch'), accountType: g('accountType'), accountNo: g('accountNo'), accountHolder: g('accountHolder'),
+      agree: $('agree') ? $('agree').checked : false };
+    const r = await api('register', body);
+    S.me = await api('me'); S.sites = null; S.form = null;
+    toast(isNew ? '申請しました。事務の確認をお待ちください' : '保存しました');
+    S.tab = r.status === '有効' ? S.tab : 'profile';
+    render();
+  });
+}
+
+/* ===== 職員：承認 ===== */
+async function pageApprove() {
+  let d;
+  await run(async () => { d = await api('pending'); });
+  if (!d) return;
+  let h = '<h2>作業実績の確認</h2>';
+  if (!d.rows.length) {
+    h += '<div class="card"><p>確認待ちの実績はありません。</p><p class="muted">' + (d.siteCount === null ? '全現場' : '担当現場 ' + d.siteCount + 'か所') + 'の分を表示しています。</p></div>';
+    $('app').innerHTML = h; return;
+  }
+  h += '<p class="muted">間違いがなければ「まとめて承認」を押してください。違うものはチェックを外して「差戻」へ。</p>';
+  const groups = {};
+  d.rows.forEach(r => { const k = r.date + '|' + r.siteName; (groups[k] = groups[k] || []).push(r); });
+  Object.keys(groups).forEach(k => {
+    const [date, site] = k.split('|');
+    h += '<div class="card"><div class="between"><b>' + esc(jpDate(date)) + '</b><span class="muted">' + groups[k].length + '人</span></div><div>' + esc(site) + '</div>' +
+      groups[k].map(r => '<label class="check" style="color:var(--ink);margin:0"><input type="checkbox" data-id="' + esc(r.id) + '" checked>' +
+        '<span style="flex:1"><b>' + esc(r.name) + '</b>　' + esc(unitText(r)) + (r.note ? '<br><span class="muted">' + esc(r.note) + '</span>' : '') + '</span>' +
+        (d.showAmount ? '<span>' + esc(yen(r.amount)) + '</span>' : '') + '</label>').join('') + '</div>';
+  });
+  h += '<button class="primary" id="ok">チェックしたものをまとめて承認</button><div style="height:8px"></div>' +
+    '<button style="width:100%;color:var(--ng)" id="ng">チェックを外したものを差戻</button>';
+  $('app').innerHTML = h;
+  const ids = (checked) => Array.from(document.querySelectorAll('[data-id]')).filter(c => c.checked === checked).map(c => c.dataset.id);
+  $('ok').onclick = () => {
+    const sel = ids(true); if (!sel.length) return toast('承認するものにチェックを入れてください');
+    run(async () => { const r = await api('approve', { ids: sel }); toast(r.count + '件を承認しました'); pageApprove(); });
+  };
+  $('ng').onclick = () => {
+    const sel = ids(false); if (!sel.length) return toast('差戻すもののチェックを外してください');
+    modal('<h3 style="margin-top:0;color:var(--ink)">' + sel.length + '件を差戻します。理由は？</h3><div class="row">' +
+      ['日付違い', '現場違い', '作業量違い', '来ていない', 'その他'].map(x => '<button class="chip" data-r="' + x + '">' + x + '</button>').join('') +
+      '</div><label>ひとこと（任意）</label><input id="memo" maxlength="60" placeholder="例：13日でした"><div style="height:12px"></div>' +
+      '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto;background:var(--ng);border-color:var(--ng)">差戻す</button></div>');
+    let reason = '';
+    document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { reason = b.dataset.r; document.querySelectorAll('[data-r]').forEach(x => x.classList.toggle('on', x === b)); });
+    $('mNo').onclick = closeModal;
+    $('mYes').onclick = () => { if (!reason) return toast('理由を選んでください');
+      run(async () => { const r = await api('reject', { ids: sel, reason, memo: $('memo').value }); closeModal(); toast(r.count + '件を差戻しました'); pageApprove(); }); };
+  };
+}
+
+/* ===== 事務：管理 ===== */
+async function pageAdmin() {
+  const nav = monthNav('admin', addMonth(thisMonth(), -1), pageAdmin);
+  let d;
+  await run(async () => { d = await api('adminSummary', { month: nav.m }); });
+  if (!d) return;
+  const c = d.counts;
+  let h = '<h2>管理（事務）</h2>' + nav.html +
+    '<div class="card"><table><tr><td>未承認</td><td class="r"><b>' + c.registered + '件</b></td></tr><tr><td>承認済（請求前）</td><td class="r">' + c.approved + '件</td></tr>' +
+    '<tr><td>差戻</td><td class="r">' + c.rejected + '件</td></tr><tr><td>請求済</td><td class="r">' + c.billed + '件</td></tr></table></div>' +
+    '<h3>登録申請中の一人親方</h3><div class="card">' + (d.applicants.length ? d.applicants.map(a =>
+      '<div class="item between"><div><b>' + esc(a.name) + '</b>' + (a.trade ? '（' + esc(a.trade) + '）' : '') + '<div class="muted">' + esc(a.tel) + '・' + esc(a.at) + '</div></div>' +
+      '<button class="chip" data-act="' + esc(a.id) + '">有効にする</button></div>').join('') : '<p class="muted">ありません。</p>') + '</div>' +
+    '<h3>' + jpMonth(nav.m) + '分の請求書</h3><div class="card">' + (d.invoices.length ? d.invoices.map(i =>
+      '<div class="item"><div class="between"><b>' + esc(i.name) + '</b><span class="badge b-' + esc(i.status) + '">' + esc(i.status) + '</span></div>' +
+      '<div class="between"><span class="muted">' + esc(i.id) + '</span><b>' + esc(yen(i.total)) + '</b></div>' +
+      (i.pdf ? (window.DEMO_HOOKS && String(i.pdf).indexOf('demo:') === 0 ? '<button class="chip" data-pdf="' + esc(i.pdf) + '">PDFを開く</button>' : '<a class="btn chip" target="_blank" rel="noopener" href="' + esc(i.pdf) + '">PDFを開く</a>') : '') + '</div>').join('') : '<p class="muted">まだ提出はありません。</p>') + '</div>' +
+    (window.DEMO_HOOKS ? '<button style="width:100%" id="sheetView">スプレッドシートの中身を見る</button>' : '<a class="btn" style="width:100%" target="_blank" rel="noopener" href="' + esc(d.sheetUrl) + '">スプレッドシートを開く</a>') +
+    '<p class="muted">親方の単価・現場の追加・職員の招待コードはスプレッドシートで管理します。</p>';
+  $('app').innerHTML = h;
+  nav.bind();
+  if (window.DEMO_HOOKS) {
+    document.querySelectorAll('[data-pdf]').forEach(b => b.onclick = () => window.DEMO_HOOKS.showPdf(b.dataset.pdf));
+    if ($('sheetView')) $('sheetView').onclick = () => window.DEMO_HOOKS.showSheets();
+  }
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => run(async () => { await api('activateOyakata', { id: b.dataset.act }); toast('有効にしました'); pageAdmin(); }));
+}
+
+boot();
+</script>
+</body>
+</html>
