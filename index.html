@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>アースライン 作業実績</title>
+<link rel="preconnect" href="https://static.line-scdn.net">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <style>
   :root {
     --bg: #f4f5f7; --card: #fff; --ink: #1d2433; --sub: #5f6b7a; --line: #dfe3e8;
@@ -100,7 +103,7 @@ const CONFIG = {
 };
 
 /* ===== 状態 ===== */
-const S = { mode: '', idToken: '', demoUser: '', me: null, tab: '', busy: false, sites: null,
+const S = { mode: '', idToken: '', demoUser: '', cacheKey: '', touched: false, me: null, tab: '', busy: false, sites: null,
   form: null, month: {}, inv: null, showInv: false, profile: null };
 
 const DEMO_PERSONAS = [
@@ -167,6 +170,7 @@ async function boot() {
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
       S.idToken = liff.getIDToken();
       if (!S.idToken) return fatal('LINEの本人確認ができませんでした。LIFFの設定で「openid」を有効にしてください。');
+      try { const t = liff.getDecodedIDToken(); if (t && t.sub) S.cacheKey = 'oyakata-boot:' + t.sub; } catch (e) { /* 覚えておく機能なしで続ける */ }
     } catch (e) { return fatal('LINEとの接続に失敗しました：' + e.message); }
     S.tab = new URLSearchParams(location.search).get('page') || q.get('page') || ''; // リッチメニューの ?page=… （init後に読む）
     return start();
@@ -187,11 +191,47 @@ function showPersonas() {
   document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { S.demoUser = b.dataset.p; S.tab = ''; S.sites = null; S.month = {}; start(); });
 }
 
+/* 開いたときの読み込み。2回目以降は前回の内容ですぐ画面を出し、裏で最新に差し替える */
+function cacheGet() {
+  if (!S.cacheKey) return null;
+  try { const v = JSON.parse(localStorage.getItem(S.cacheKey) || 'null'); return v && v.me ? v : null; } catch (e) { return null; }
+}
+function cacheSet(d) {
+  if (!S.cacheKey) return;
+  // スマホに残すのは画面を出すのに必要な最小限だけ（住所・電話・口座は残さない）
+  const o = d.me.oyakata;
+  const slim = { me: { demo: d.me.demo, staff: d.me.staff,
+    oyakata: o ? { id: o.id, name: o.name, status: o.status, rateDay: o.rateDay, rateHalf: o.rateHalf, rateHour: o.rateHour } : null },
+    sites: d.sites };
+  try { localStorage.setItem(S.cacheKey, JSON.stringify(slim)); } catch (e) { /* 保存できなくても動く */ }
+  return slim;
+}
 async function start() {
-  await run(async () => { S.me = await api('me'); });
+  S.touched = false;
+  const cached = cacheGet();
+  if (cached) {
+    S.me = cached.me; S.sites = cached.sites;
+    render();
+    refreshInBackground(JSON.stringify(cached));
+    return;
+  }
+  await run(async () => { const d = await api('boot'); S.me = d.me; S.sites = d.sites; cacheSet(d); });
   if (!S.me) return;
   render();
 }
+async function refreshInBackground(before) {
+  try {
+    const d = await api('boot');
+    const slim = cacheSet(d) || d;
+    if (JSON.stringify(slim) === before) return;
+    S.me = d.me;
+    // 入力を始めていなければ、最新の内容で画面を描き直す
+    if (!S.touched && !S.busy && !document.querySelector('.modal')) { S.sites = d.sites; S.form = null; render(); }
+    else if (d.sites) S.sites = d.sites;
+  } catch (e) { console.warn('refresh', e); }
+}
+document.addEventListener('input', () => { S.touched = true; }, true);
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('main')) S.touched = true; }, true);
 
 /* ===== 画面の切り替え ===== */
 function tabsFor(me) {
@@ -312,7 +352,13 @@ function saveWork(p, siteName, force) {
       $('mYes').onclick = () => { closeModal(); saveWork(p, siteName, true); };
       return;
     }
-    S.sites = null; S.form = null; delete S.month.list;
+    // 現場一覧は問い合わせ直さず、今の登録を「前回」として手元で更新する（次の画面がすぐ出る）
+    if (S.sites) {
+      S.sites.last = { siteId: p.siteId, siteName: r.siteName, kind: p.kind === '請負' ? '請負' : '応援', unit: r.unit, hours: r.hours, amount: r.amount };
+      S.sites.recent = [p.siteId].concat((S.sites.recent || []).filter(x => x !== p.siteId)).slice(0, 5);
+      if (S.me) cacheSet({ me: S.me, sites: S.sites });
+    }
+    S.form = null; delete S.month.list;
     const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.unit === '時間' ? r.hours + '時間' : r.unit) + ' ' + yen(r.amount);
     $('app').innerHTML = '<div class="alert ok" style="font-size:17px"><b>登録しました</b><br>' + esc(text.replace('【作業登録】', '')) + '</div>' +
       '<button class="primary" id="again">続けて登録する</button><div style="height:8px"></div>' +
