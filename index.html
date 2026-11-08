@@ -508,29 +508,40 @@ function pageInvoice() {
 }
 function drawInvoice(d, nav) {
   const key = 'inv:' + nav.m;
+  const invs = d.invoices || [];
+  const siteTable = (x) => '<table>' + x.bySite.map(s => '<tr><td>' + esc(s.siteName) + '<div class="muted">' + (s.days ? s.days + '日' : '') + '（' + s.count + '件）</div></td><td class="r">' + esc(yen(s.amount)) + '</td></tr>').join('') +
+    '<tr><td>小計（税抜）</td><td class="r">' + esc(yen(x.subtotal)) + '</td></tr><tr><td>消費税（10%）</td><td class="r">' + esc(yen(x.tax)) + '</td></tr>' +
+    '<tr><td><b>ご請求金額</b></td><td class="r big">' + esc(yen(x.total)) + '</td></tr></table>';
   let h = '<h2>請求書</h2>' + nav.html;
-  if (d.submitted) {
-    h += '<div class="alert ok"><b>提出済み</b>（' + esc(d.submittedAt) + '）<br>請求書番号：' + esc(d.invoiceId) + '</div>';
-    if (d.newApproved || d.unapproved) h += '<div class="alert warn">提出後に承認された実績や未承認の実績があります。翌月の請求に含めるか事務へ相談してください。</div>';
-  } else if (!d.count) {
+  // 提出済みの請求書（追加の請求書があれば複数）
+  invs.forEach((inv, i) => {
+    const open = S.showInv === 'inv' + i;
+    h += '<div class="card"><div class="between"><b>' + esc(inv.invoiceId) + '</b><span class="badge b-提出済">提出済</span></div>' +
+      '<div class="between"><span class="muted">' + esc(inv.submittedAt) + '・' + inv.count + '件</span><b>' + esc(yen(inv.total)) + '</b></div>' +
+      '<div style="text-align:right;margin-top:8px"><button class="chip" data-view="inv' + i + '">' + (open ? '閉じる' : '請求書を見る') + '</button></div>' +
+      (open ? '<div style="height:8px"></div><iframe class="inv" data-frame="' + i + '"></iframe>' : '') + '</div>';
+  });
+  if (d.count) {
+    if (invs.length) h += '<h3>追加の請求書（提出後に承認された分）</h3>';
+    if (d.unapproved) h += '<div class="alert warn">未承認の実績が' + d.unapproved + '件あります。請求書には承認済みの分だけが入ります。' + (d.canSubmit ? '承認を待つ場合は、提出せずに待ってください。' : '') + '</div>';
+    if (!d.canSubmit && !d.closed) h += '<div class="alert warn"><b>' + Number(nav.m.slice(5, 7)) + '月分は、月末の締めが過ぎてから（' + esc(d.closeDate) + '以降）提出できます。</b><br>それまでに承認された分も、まとめてこの請求書に入ります。今は内容の確認だけできます。</div>';
+    h += '<div class="card">' + siteTable(d) + '</div>' +
+      '<button style="width:100%" data-view="new">' + (S.showInv === 'new' ? '請求書のイメージを閉じる' : '請求書のイメージを見る') + '</button>' +
+      (S.showInv === 'new' ? '<div style="height:8px"></div><iframe class="inv" data-frame="new"></iframe>' : '') +
+      (d.canSubmit ? '<div style="height:12px"></div><button class="primary" id="submit">' + (invs.length ? '追加の請求書を提出する' : 'この内容で請求書を提出する') + '</button>' +
+        '<p class="muted">提出すると、アースライン指定の書式でPDFが作られ、事務に届きます。</p>' : '');
+  } else if (!invs.length) {
     h += '<div class="card"><p>この月の承認済みの実績はまだありません。</p>' + (d.unapproved ? '<p class="muted">未承認：' + d.unapproved + '件（現場責任者の承認待ち）</p>' : '') + '</div>';
-    $('app').innerHTML = h; nav.bind(); return;
-  } else if (d.unapproved) {
-    h += '<div class="alert warn">未承認の実績が' + d.unapproved + '件あります。請求書には承認済みの分だけが入ります。承認を待つ場合は、提出せずに待ってください。</div>';
+  } else {
+    h += d.unapproved ? '<div class="alert warn">未承認の実績が' + d.unapproved + '件あります。承認されると、追加の請求書として提出できます。</div>'
+      : '<p class="muted">追加で請求する実績はありません。</p>';
   }
-  h += '<div class="card"><table>' + d.bySite.map(s => '<tr><td>' + esc(s.siteName) + '<div class="muted">' + (s.days ? s.days + '日' : '') + '（' + s.count + '件）</div></td><td class="r">' + esc(yen(s.amount)) + '</td></tr>').join('') +
-    '<tr><td>小計（税抜）</td><td class="r">' + esc(yen(d.subtotal)) + '</td></tr><tr><td>消費税（10%）</td><td class="r">' + esc(yen(d.tax)) + '</td></tr>' +
-    '<tr><td><b>ご請求金額</b></td><td class="r big">' + esc(yen(d.total)) + '</td></tr></table></div>' +
-    '<button style="width:100%" id="toggle">' + (S.showInv ? '請求書のイメージを閉じる' : '請求書のイメージを見る') + '</button>' +
-    (S.showInv ? '<div style="height:8px"></div><iframe class="inv" id="invf"></iframe>' : '') +
-    (!d.submitted ? '<div style="height:12px"></div><button class="primary" id="submit">この内容で請求書を提出する</button>' +
-      '<p class="muted">提出すると、アースライン指定の書式でPDFが作られ、事務に届きます。</p>' : '');
   $('app').innerHTML = h;
   nav.bind();
-  if (S.showInv) $('invf').srcdoc = d.html;
-  $('toggle').onclick = () => { S.showInv = !S.showInv; drawInvoice(S.data[key] || d, nav); };
+  document.querySelectorAll('iframe[data-frame]').forEach(f => { const k = f.dataset.frame; f.srcdoc = k === 'new' ? d.html : invs[Number(k)].html; });
+  document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { S.showInv = S.showInv === b.dataset.view ? false : b.dataset.view; drawInvoice(S.data[key] || d, nav); });
   if ($('submit')) $('submit').onclick = () => {
-    modal('<p style="margin-top:0"><b>' + esc(jpMonth(nav.m)) + '分 ' + esc(yen(d.total)) + '</b> の請求書を提出します。提出後は変更できません。よろしいですか？</p>' +
+    modal('<p style="margin-top:0"><b>' + esc(jpMonth(nav.m)) + '分 ' + esc(yen(d.total)) + '</b> の' + (invs.length ? '追加の' : '') + '請求書を提出します。提出後は変更できません。よろしいですか？</p>' +
       '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">提出する</button></div>');
     $('mNo').onclick = closeModal;
     $('mYes').onclick = () => {
@@ -539,7 +550,7 @@ function drawInvoice(d, nav) {
       act(async () => {
         try {
           const r = await api('submitInvoice', { month: nav.m });
-          S.data[key] = r; delete S.data['list:' + nav.m];
+          S.data[key] = r; delete S.data['list:' + nav.m]; S.showInv = false;
           toast('提出しました（' + r.invoiceId + '）');
           if (S.view === key) drawInvoice(r, nav);
         } catch (e) { if (S.view === key) drawInvoice(S.data[key] || d, nav); throw e; }
