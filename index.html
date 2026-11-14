@@ -70,9 +70,14 @@
   td.r { text-align: right; white-space: nowrap; }
   nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line);
     display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding-bottom: env(safe-area-inset-bottom); z-index: 5; }
-  nav button { border: 0; border-radius: 0; min-height: 64px; font-size: 13px; flex-direction: column; gap: 2px; color: var(--sub); background: none; }
+  nav button { border: 0; border-radius: 0; min-height: 64px; font-size: 12px; white-space: nowrap; padding-inline: 2px; flex-direction: column; gap: 2px; color: var(--sub); background: none; }
   nav button .i { font-size: 20px; }
   nav button.on { color: var(--accent); font-weight: 700; }
+  nav.many { grid-auto-columns: minmax(68px, 1fr); overflow-x: auto; }
+  nav.many button { font-size: 12px; white-space: nowrap; padding: 8px 4px; }
+  .b-未回答, .b-募集中, .b-手挙げ { background: var(--warn-weak); color: var(--warn); }
+  .b-確定 { background: var(--ok-weak); color: var(--ok); }
+  .b-辞退, .b-見送り, .b-取消, .b-締切 { background: var(--line); color: var(--sub); }
   .check { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .check input { width: 26px; height: 26px; min-height: 0; flex: none; }
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; z-index: 20; }
@@ -202,9 +207,10 @@ function prefetchAll() {
   setTimeout(() => {
     if (me.oyakata && me.oyakata.status === '有効') {
       prefetch('list:' + thisMonth(), 'listWork', { month: thisMonth() });
+      prefetch('myreq', 'myRequests', {});
       prefetch('inv:' + addMonth(thisMonth(), -1), 'invoicePreview', { month: addMonth(thisMonth(), -1) });
     }
-    if (me.staff && me.staff.role !== '従業員') prefetch('pending', 'pending', {});
+    if (me.staff && me.staff.role !== '従業員') { prefetch('pending', 'pending', {}); prefetch('sreq:open', 'listRequests', { filter: 'open' }); }
     if (me.staff) prefetch('rlist:' + thisMonth(), 'listReports', { month: thisMonth() });
   }, 300);
 }
@@ -241,7 +247,7 @@ function showPersonas() {
     '<p class="muted">名前・現場はすべて架空のサンプルです。上の「切替」でいつでも別の人に変えられます。' +
     (window.DEMO_HOOKS ? 'データはこの画面の中だけで、ページを開き直すと最初の状態に戻ります。' : '') + '</p>' +
     DEMO_PERSONAS.map(p => '<button class="persona" data-p="' + esc(p.id) + '"><b>' + esc(p.name) + '</b><small>' + esc(p.desc) + '</small></button>').join('');
-  document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { S.demoUser = b.dataset.p; S.tab = ''; S.sites = null; S.month = {}; S.data = {}; S.form = null; S.report = null; S.rform = null; S.rmode = 'input'; start(); });
+  document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { S.demoUser = b.dataset.p; S.tab = ''; S.sites = null; S.month = {}; S.data = {}; S.form = null; S.report = null; S.rform = null; S.rmode = 'input'; S.sreq = null; start(); });
 }
 
 /* 開いたときの読み込み。2回目以降は前回の内容ですぐ画面を出し、裏で最新に差し替える */
@@ -298,12 +304,20 @@ document.addEventListener('click', (e) => { if (e.target.closest && e.target.clo
 /* ===== 画面の切り替え ===== */
 function tabsFor(me) {
   const t = [];
-  if (me.oyakata && me.oyakata.status === '有効') t.push(['work', '✏️', '作業登録'], ['list', '📋', '今月の実績'], ['invoice', '🧾', '請求書']);
-  if (me.staff && me.staff.role !== '従業員') t.push(['approve', '✅', '承認']);
+  const w = S.sites && S.sites.waiting ? S.sites.waiting : 0;
+  if (me.oyakata && me.oyakata.status === '有効') t.push(['work', '✏️', '作業登録'], ['req', '📨', w ? '依頼(' + w + ')' : '依頼'], ['list', '📋', '実績'], ['invoice', '🧾', '請求書']);
+  if (me.staff && me.staff.role !== '従業員') t.push(['sreq', '📣', '依頼管理'], ['approve', '✅', '承認']);
   if (me.staff) t.push(['report', '📝', '日報']);
   if (me.staff && me.staff.role === '事務') t.push(['admin', '🗂️', '管理']);
   if (me.oyakata) t.push(['profile', '👤', '登録情報']);
   return t;
+}
+function drawNav() {
+  const tabs = tabsFor(S.me), nav = $('nav');
+  nav.classList.toggle('hidden', tabs.length < 2);
+  nav.classList.toggle('many', tabs.length > 5);
+  nav.innerHTML = tabs.map(t => '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '"><span class="i">' + t[1] + '</span>' + t[2] + '</button>').join('');
+  nav.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.showInv = false; if (S.sreq) S.sreq.creating = false; render(); });
 }
 function render() {
   const me = S.me;
@@ -313,12 +327,9 @@ function render() {
   if (S.demoUser) $('switch').onclick = showPersonas;
   const tabs = tabsFor(me);
   if (!tabs.length) { $('nav').classList.add('hidden'); return pageWelcome(); }
-  if (!tabs.some(t => t[0] === S.tab)) S.tab = tabs[0][0];
-  const nav = $('nav');
-  nav.classList.toggle('hidden', tabs.length < 2);
-  nav.innerHTML = tabs.map(t => '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '"><span class="i">' + t[1] + '</span>' + t[2] + '</button>').join('');
-  nav.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.showInv = false; render(); });
-  ({ work: pageWork, list: pageList, invoice: pageInvoice, approve: pageApprove, report: pageReport, admin: pageAdmin, profile: pageProfile })[S.tab]();
+  if (!tabs.some(t => t[0] === S.tab)) S.tab = (S.sites && S.sites.waiting && tabs.some(t => t[0] === 'req')) ? 'req' : tabs[0][0];
+  drawNav();
+  ({ work: pageWork, req: pageReq, list: pageList, invoice: pageInvoice, sreq: pageSreq, approve: pageApprove, report: pageReport, admin: pageAdmin, profile: pageProfile })[S.tab]();
   window.scrollTo(0, 0);
 }
 
@@ -337,88 +348,123 @@ function pageWelcome() {
   });
 }
 
-/* ===== 一人親方：作業登録 ===== */
+/* ===== 一人親方：作業登録（確定した依頼から選ぶ。現場の一覧は見せない） ===== */
+const UNIT_KEYS = [['day', '1日', 'rateDay'], ['half', '半日', 'rateHalf'], ['hour', '時間', 'rateHour']];
+const unitsOf = (j) => UNIT_KEYS.filter(u => j[u[2]] > 0);
+const inRange = (j, d) => j.start <= d && d <= j.end;
+const periodText = (j) => j.start === j.end ? jpDate(j.start) : jpDate(j.start) + '〜' + jpDate(j.end);
+const rateText = (j) => j.kind === '請負' ? '請負 ' + yen(j.amount) : unitsOf(j).map(u => u[1] + ' ' + yen(j[u[2]])).join('・');
 async function pageWork() {
   $('app').innerHTML = '<div class="card">読み込み中…</div>';
-  if (!S.sites) {
+  if (!S.sites || !S.sites.jobs) {
     S.view = 'work'; busy(1);
     try { S.sites = await api('sites'); } catch (e) { busy(-1); return fatal(e.message || String(e)); }
     busy(-1);
     if (!S.me || S.tab !== 'work') return;
   }
-  S.view = 'work';
-  const last = S.sites.last;
-  if (!S.form) S.form = { date: today(), siteId: last ? last.siteId : '', kind: last ? last.kind : '応援',
-    unit: last ? ({ '1日': 'day', '半日': 'half', '時間': 'hour' }[last.unit] || 'day') : 'day', hours: last && last.hours ? last.hours : '', amount: '', amountEdited: false, note: '', filter: '' };
+  S.view = 'work'; S.touched = false;
+  showWork();
+  // 確定した依頼が増えていないか、裏で確かめて変わっていれば描き直す
+  const before = JSON.stringify(S.sites);
+  busy(1);
+  api('sites').then(d => {
+    if (JSON.stringify(d) === before) return;
+    S.sites = d; if (S.me) cacheSet({ me: S.me, sites: S.sites });
+    drawNav();
+    if (S.view === 'work' && S.tab === 'work' && !S.touched && !S.acting && !document.querySelector('.modal')) showWork();
+  }).catch(e => console.warn('sites', e)).finally(() => busy(-1));
+}
+function showWork() {
+  const jobs = S.sites.jobs;
+  if (!S.form || !jobs.some(j => j.id === S.form.reqId)) {
+    const j = jobs.find(x => inRange(x, today()) && !x.done) || jobs.find(x => !x.done) || null;
+    S.form = j ? newWorkForm(j) : null;
+  }
   drawWork();
 }
-function rateFor(f) {
-  const o = S.me.oyakata;
-  if (f.kind === '請負') return '';
-  if (f.unit === 'day') return o.rateDay;
-  if (f.unit === 'half') return o.rateHalf;
-  return f.hours ? Math.round(o.rateHour * Number(f.hours)) : '';
+function newWorkForm(j) {
+  const d = inRange(j, today()) ? today() : (j.end < today() ? j.end : j.start);
+  return { reqId: j.id, date: d > today() ? today() : d, unit: (unitsOf(j)[0] || ['day'])[0], hours: '', note: '' };
+}
+function workAmount(j, f) {
+  if (j.kind === '請負') return j.amount;
+  const u = UNIT_KEYS.find(x => x[0] === f.unit);
+  if (!u) return 0;
+  return u[0] === 'hour' ? (f.hours ? Math.round(j.rateHour * Number(f.hours)) : 0) : j[u[2]];
 }
 function drawWork() {
-  const f = S.form, d = S.sites, last = d.last;
-  if (!f.amountEdited) f.amount = rateFor(f);
-  const siteName = (id) => (d.sites.find(s => s.id === id) || {}).name || '';
-  const recent = d.recent.map(id => d.sites.find(s => s.id === id)).filter(Boolean);
-  const filtered = d.sites.filter(s => !f.filter || (s.name + s.short).indexOf(f.filter) >= 0);
+  const jobs = S.sites.jobs, waiting = S.sites.waiting || 0;
   let h = '<h2>作業を登録</h2>';
-  if (last) {
-    h += '<button class="quick" id="quick"><b>前回と同じ内容で今日を登録</b>' +
-      esc(jpDate(today())) + '　' + esc(last.siteName) + '<br>' + esc(last.kind === '請負' ? '請負' : (last.unit === '時間' ? last.hours + '時間' : last.unit)) + '　' + esc(yen(last.amount)) + '</button>' +
-      '<p class="muted" style="text-align:center;margin:10px 0 4px">違う内容のときは下で入力</p>';
+  if (waiting) h += '<div class="alert warn">返事をしていない依頼が' + waiting + '件あります。<button class="chip" id="toReq" style="margin-left:6px;min-height:32px">依頼を見る</button></div>';
+  if (!jobs.length) {
+    h += '<div class="card"><p><b>確定した依頼がありません。</b></p><p class="muted">作業の登録は、職員から届いた依頼が確定してからできます。依頼がないのに作業した日は、職員へ連絡してください（職員があとから依頼を作ります）。</p></div>';
+    $('app').innerHTML = h;
+    if ($('toReq')) $('toReq').onclick = () => { S.tab = 'req'; render(); };
+    return;
   }
-  h += '<div class="card">' +
-    '<label>作業日</label><div class="seg">' +
-    '<button data-date="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日 ' + esc(jpDate(today())) + '</button>' +
-    '<button data-date="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日</button></div>' +
-    '<div style="height:8px"></div><input type="date" id="date" value="' + esc(f.date) + '" max="' + today() + '">' +
-    '<label>現場</label>' +
-    (recent.length ? '<div class="row" style="margin-bottom:8px">' + recent.map(s => '<button class="chip ' + (f.siteId === s.id ? 'on' : '') + '" data-site="' + esc(s.id) + '">' + esc(s.short) + '</button>').join('') + '</div>' : '') +
-    (d.sites.length > 8 ? '<input id="filter" placeholder="現場名で絞り込み" value="' + esc(f.filter) + '"><div style="height:8px"></div>' : '') +
-    '<select id="site"><option value="">現場を選んでください</option>' + filtered.map(s => '<option value="' + esc(s.id) + '"' + (f.siteId === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') + '</select>' +
-    '<p class="muted" style="margin:6px 0 0">現場が見つからないときは事務へ連絡してください。</p>' +
-    '<label>区分</label><div class="seg">' + ['応援', '請負'].map(k => '<button data-kind="' + k + '" class="' + (f.kind === k ? 'on' : '') + '">' + k + '</button>').join('') + '</div>';
-  if (f.kind === '応援') {
-    h += '<label>作業量</label><div class="seg">' + [['day', '1日'], ['half', '半日'], ['hour', '時間']].map(u => '<button data-unit="' + u[0] + '" class="' + (f.unit === u[0] ? 'on' : '') + '">' + u[1] + '</button>').join('') + '</div>';
-    if (f.unit === 'hour') h += '<label>時間数</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：3">';
+  // 今日の分は1回押すだけ
+  const todays = jobs.filter(j => j.kind === '応援' && inRange(j, today()) && unitsOf(j).some(u => u[0] !== 'hour'));
+  todays.forEach((j, i) => {
+    const u = unitsOf(j).find(x => x[0] !== 'hour');
+    h += '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
+      esc(jpDate(today()) + '　' + j.siteName) + '<br>' + esc(yen(j[u[2]])) + '</button>';
+  });
+  if (todays.length) h += '<p class="muted" style="text-align:center;margin:6px 0 4px">半日・時間・別の日は下で入力</p>';
+  if (!S.form) S.form = newWorkForm(jobs[0]);
+  const f = S.form;
+  const j = jobs.find(x => x.id === f.reqId) || jobs[0];
+  h += '<div class="card"><label>依頼（確定した現場）</label>' +
+    jobs.map(x => '<button class="persona' + (x.id === j.id ? ' on' : '') + '" data-job="' + esc(x.id) + '" style="' + (x.id === j.id ? 'border:2px solid var(--accent);background:var(--accent-weak)' : '') + '">' +
+      '<b>' + esc(x.siteName) + '</b><small>' + esc(x.kind + '・' + periodText(x) + '・' + rateText(x)) + (x.done ? '・完了報告済み' : '') + '</small></button>').join('');
+  if (j.kind === '請負') {
+    h += '<label>完了日</label><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(j.end < today() ? j.end : today()) + '">' +
+      '<div class="between" style="margin-top:14px"><span>請負金額（税抜）</span><span class="big">' + esc(yen(j.amount)) + '</span></div>' +
+      (j.content ? '<p class="muted">' + esc(j.content) + '</p>' : '') +
+      '<label>ひとこと（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '">' +
+      '<div style="height:16px"></div><button class="primary" id="save"' + (j.done ? ' disabled' : '') + '>' + (j.done ? '完了報告済みです' : '工事の完了を報告する') + '</button>' +
+      '<p class="muted">責任者が完了を確認して承認すると、完了日の月の請求書に入ります。</p></div>';
+  } else {
+    const maxD = j.end < today() ? j.end : today();
+    const units = unitsOf(j);
+    if (!units.some(u => u[0] === f.unit)) f.unit = units[0][0];
+    h += '<label>作業日</label><div class="seg">' +
+      (inRange(j, today()) ? '<button data-date="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日 ' + esc(jpDate(today())) + '</button>' : '') +
+      (inRange(j, yesterday()) ? '<button data-date="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日</button>' : '') + '</div>' +
+      '<div style="height:8px"></div><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(maxD) + '">' +
+      '<label>作業量</label><div class="seg">' + units.map(u => '<button data-unit="' + u[0] + '" class="' + (f.unit === u[0] ? 'on' : '') + '">' + u[1] + '</button>').join('') + '</div>' +
+      (f.unit === 'hour' ? '<label>時間数</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：3">' : '') +
+      '<div class="between" style="margin-top:14px"><span>金額（税抜・依頼の単価）</span><span class="big" id="amountView">' + esc(yen(workAmount(j, f))) + '</span></div>' +
+      '<label>作業内容（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '" placeholder="例：2階給水配管">' +
+      '<div style="height:16px"></div><button class="primary" id="save">登録する</button></div>';
   }
-  h += '<label>金額（税抜）' + (f.kind === '応援' ? '　<span class="muted">登録単価から自動計算・変更もできます</span>' : '') + '</label>' +
-    '<input id="amount" class="amount" type="number" inputmode="numeric" value="' + esc(f.amount) + '" placeholder="' + (f.kind === '請負' ? '請負金額を入力' : '') + '">' +
-    '<label>作業内容（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '" placeholder="例：2階給水配管">' +
-    '<div style="height:16px"></div><button class="primary" id="save">登録する</button></div>';
+  h += '<p class="muted">一覧にない現場で作業した日は、職員へ連絡してください。</p>';
   $('app').innerHTML = h;
-
-  if (last) $('quick').onclick = () => saveWork({ date: today(), siteId: last.siteId, kind: last.kind,
-    unit: { '1日': 'day', '半日': 'half', '時間': 'hour' }[last.unit], hours: last.hours, amount: last.amount }, last.siteName);
+  if ($('toReq')) $('toReq').onclick = () => { S.tab = 'req'; render(); };
+  document.querySelectorAll('[data-quick]').forEach(b => b.onclick = () => {
+    const x = todays[Number(b.dataset.quick)], u = unitsOf(x).find(y => y[0] !== 'hour');
+    saveWork({ reqId: x.id, date: today(), unit: u[0] }, x);
+  });
+  document.querySelectorAll('[data-job]').forEach(b => b.onclick = () => { const x = jobs.find(y => y.id === b.dataset.job); S.form = newWorkForm(x); drawWork(); });
   document.querySelectorAll('[data-date]').forEach(b => b.onclick = () => { f.date = b.dataset.date; drawWork(); });
-  $('date').onchange = (e) => { f.date = e.target.value; drawWork(); };
-  document.querySelectorAll('[data-site]').forEach(b => b.onclick = () => { f.siteId = b.dataset.site; drawWork(); });
-  $('site').onchange = (e) => { f.siteId = e.target.value; };
-  if ($('filter')) $('filter').oninput = (e) => { f.filter = e.target.value; const pos = e.target.selectionStart; drawWork(); $('filter').focus(); $('filter').setSelectionRange(pos, pos); };
-  document.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { f.kind = b.dataset.kind; f.amountEdited = false; drawWork(); });
-  document.querySelectorAll('[data-unit]').forEach(b => b.onclick = () => { f.unit = b.dataset.unit; f.amountEdited = false; drawWork(); });
-  if ($('hours')) $('hours').oninput = (e) => { f.hours = e.target.value; if (!f.amountEdited) { f.amount = rateFor(f); $('amount').value = f.amount; } };
-  $('amount').oninput = (e) => { f.amount = e.target.value; f.amountEdited = true; };
+  if ($('date')) $('date').onchange = (e) => { f.date = e.target.value; drawWork(); };
+  document.querySelectorAll('[data-unit]').forEach(b => b.onclick = () => { f.unit = b.dataset.unit; drawWork(); });
+  if ($('hours')) $('hours').oninput = (e) => { f.hours = e.target.value; $('amountView').textContent = yen(workAmount(j, f)); };
   $('note').oninput = (e) => { f.note = e.target.value; };
   $('save').onclick = () => {
-    if (!f.siteId) return toast('現場を選んでください');
-    if (f.kind === '請負' && !f.amount) return toast('請負金額を入力してください');
-    if (f.kind === '応援' && f.unit === 'hour' && !f.hours) return toast('時間数を入力してください');
-    saveWork({ date: f.date, siteId: f.siteId, kind: f.kind, unit: f.unit, hours: f.hours, amount: f.amount, note: f.note }, siteName(f.siteId));
+    if (!f.date) return toast('日付を選んでください');
+    if (f.date < j.start || f.date > j.end) return toast('依頼の期間（' + periodText(j) + '）の日付を選んでください');
+    if (j.kind === '応援' && f.unit === 'hour' && !f.hours) return toast('時間数を入力してください');
+    saveWork({ reqId: j.id, date: f.date, unit: f.unit, hours: f.hours, note: f.note }, j);
   };
 }
 // 押した瞬間に結果の画面へ切り替え、保存が終わったら「登録しました」に変える
-function saveWork(p, siteName, force) {
+function saveWork(p, job, force) {
   if (S.acting) return toast('前の登録を保存中です。少しお待ちください');
-  const label = p.kind === '請負' ? '請負' : (({ day: '1日', half: '半日', hour: (p.hours || '') + '時間' })[p.unit] || '');
+  const label = job.kind === '請負' ? '請負（完了報告）' : (({ day: '1日', half: '半日', hour: (p.hours || '') + '時間' })[p.unit] || '');
   const formBackup = S.form;
   S.form = null;
   $('app').innerHTML = '<div class="alert saving" id="saveState" style="font-size:17px;background:var(--accent-weak);color:var(--ink)"><b>保存しています</b><br>' +
-    esc(jpDate(p.date) + ' ' + siteName + ' ' + label + (p.amount ? ' ' + yen(p.amount) : '')) + '</div>' +
+    esc(jpDate(p.date) + ' ' + job.siteName + ' ' + label) + '</div>' +
     '<button class="primary" id="again">続けて登録する</button><div style="height:8px"></div>' +
     '<button style="width:100%" id="toList">今月の実績を見る</button>' +
     (S.mode === 'liff' ? '<div style="height:8px"></div><button style="width:100%" id="close" disabled>保存が終わると閉じられます</button>' : '');
@@ -441,25 +487,23 @@ function saveWork(p, siteName, force) {
       modal('<h3 style="margin-top:0;color:var(--ink)">同じ日・同じ現場の登録があります</h3><p>' + esc(r.message) + '</p>' +
         '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">登録する</button></div>');
       $('mNo').onclick = () => { closeModal(); if (S.tab === 'work') (S.form ? drawWork() : pageWork()); };
-      $('mYes').onclick = () => { closeModal(); saveWork(p, siteName, true); };
+      $('mYes').onclick = () => { closeModal(); saveWork(p, job, true); };
       if ($('saveState')) $('saveState').outerHTML = '<div class="alert warn" id="saveState"><b>まだ登録していません</b><br>確認の画面で選んでください。</div>';
       return;
     }
-    // 現場一覧は問い合わせ直さず、今の登録を「前回」として手元で更新する（次の画面がすぐ出る）
-    if (S.sites) {
-      S.sites.last = { siteId: p.siteId, siteName: r.siteName, kind: p.kind === '請負' ? '請負' : '応援', unit: r.unit, hours: r.hours, amount: r.amount };
-      S.sites.recent = [p.siteId].concat((S.sites.recent || []).filter(x => x !== p.siteId)).slice(0, 5);
+    if (r.kind === '請負' && S.sites && S.sites.jobs) {
+      const x = S.sites.jobs.find(y => y.id === r.reqId); if (x) x.done = true;
       if (S.me) cacheSet({ me: S.me, sites: S.sites });
     }
     // 今月の実績の一覧にも、手元で1行足しておく（開いたときにすぐ出る）
     const lk = 'list:' + r.date.slice(0, 7), list = S.data[lk];
     if (list) {
-      const rows = list.rows.concat([{ id: r.id, date: r.date, siteId: p.siteId, siteName: r.siteName, kind: p.kind === '請負' ? '請負' : '応援',
-        unit: r.unit, hours: r.hours, amount: r.amount, note: p.note || '', status: '登録済', reason: '', invoiceId: '' }])
+      const rows = list.rows.concat([{ id: r.id, date: r.date, siteId: r.siteId, siteName: r.siteName, kind: r.kind,
+        unit: r.unit, hours: r.hours, amount: r.amount, note: p.note || '', status: '登録済', reason: '', invoiceId: '', reqId: r.reqId }])
         .sort((a, b) => (a.status === '差戻' ? -1 : 0) - (b.status === '差戻' ? -1 : 0) || a.date.localeCompare(b.date));
       S.data[lk] = Object.assign({}, list, { rows: rows, total: list.total + r.amount });
     }
-    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.unit === '時間' ? r.hours + '時間' : r.unit) + ' ' + yen(r.amount);
+    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.kind === '請負' ? '請負（完了報告）' : r.unit === '時間' ? r.hours + '時間' : r.unit) + ' ' + yen(r.amount);
     if ($('saveState')) {
       $('saveState').outerHTML = '<div class="alert ok" id="saveState" style="font-size:17px"><b>登録しました ✓</b><br>' + esc(text.replace('【作業登録】', '')) + '</div>';
       if ($('close')) { $('close').disabled = false; $('close').textContent = '閉じる'; $('close').onclick = () => liff.closeWindow(); }
@@ -470,6 +514,170 @@ function saveWork(p, siteName, force) {
       try { await liff.sendMessages([{ type: 'text', text: text }]); } catch (e) { console.warn('sendMessages', e); }
     }
   });
+}
+
+/* ===== 一人親方：届いた依頼 ===== */
+function reqCard(x, body) {
+  return '<div class="card"><div class="between"><b>' + esc(x.kind === '請負' ? '請負の依頼' : '応援の依頼') + '</b><span class="badge b-' + esc(x.my || x.status) + '">' + esc(x.my || x.status) + '</span></div>' +
+    '<div style="margin-top:6px"><b>' + esc(periodText(x)) + '</b>　' + esc(x.siteName || x.area || '地域未設定') + '</div>' +
+    (x.address ? '<div class="muted">' + esc(x.address) + '</div>' : '') +
+    (x.content ? '<div style="margin-top:4px">' + esc(x.content) + '</div>' : '') +
+    '<div class="between" style="margin-top:6px"><span class="muted">' + (x.kind === '応援' ? '必要 ' + x.people + '人' : '') + (x.deadline ? '　返事の期限 ' + esc(jpDate(x.deadline)) : '') + '</span><b>' + esc(rateText(x)) + '</b></div>' +
+    (body || '') + '</div>';
+}
+function pageReq() { view('myreq', 'myRequests', {}, drawReq); }
+function drawReq(d) {
+  const by = (s) => d.rows.filter(x => s.indexOf(x.my) >= 0);
+  const todo = by(['未回答']), wait = by(['手挙げ']), fixed = by(['確定']), done = by(['辞退', '見送り', '取消', '締切']);
+  let h = '<h2>依頼</h2>';
+  if (!d.rows.length) h += '<div class="card"><p>届いている依頼はありません。</p></div>';
+  if (todo.length) h += '<h3>返事をしてください（' + todo.length + '件）</h3>' + todo.map(x => reqCard(x,
+    '<div class="row" style="margin-top:10px"><button style="flex:1" data-no="' + esc(x.id) + '">辞退する</button><button class="primary" style="flex:2;width:auto" data-yes="' + esc(x.id) + '">受けたい</button></div>')).join('') +
+    '<p class="muted">現場名は、職員が確定したあとに表示されます。</p>';
+  if (fixed.length) h += '<h3>確定した依頼</h3>' + fixed.map(x => reqCard(x,
+    '<div style="text-align:right;margin-top:8px"><button class="chip" data-go="' + esc(x.id) + '">' + (x.kind === '請負' ? '完了を報告する' : 'この依頼で作業登録') + '</button></div>')).join('');
+  if (wait.length) h += '<h3>職員の確定待ち</h3>' + wait.map(x => reqCard(x,
+    '<div style="text-align:right;margin-top:8px"><button class="chip" data-no="' + esc(x.id) + '">辞退に変える</button></div>')).join('');
+  if (done.length) h += '<h3>終わった依頼</h3><div class="card">' + done.map(x => '<div class="item between"><span>' + esc(periodText(x) + ' ' + (x.area || '')) + '</span><span class="badge b-' + esc(x.my) + '">' + esc(x.my) + '</span></div>').join('') + '</div>';
+  $('app').innerHTML = h;
+  const answer = (id, ok) => {
+    const prev = S.data.myreq || d;
+    const opt = Object.assign({}, prev, { rows: prev.rows.map(x => x.id === id ? Object.assign({}, x, { my: ok ? '手挙げ' : '辞退' }) : x) });
+    S.data.myreq = opt; drawReq(opt);
+    act(async () => {
+      try {
+        const r = await api('answerRequest', { id: id, ok: ok });
+        S.data.myreq = r; if (S.view === 'myreq') drawReq(r);
+        if (S.sites) { S.sites.waiting = r.rows.filter(x => x.my === '未回答').length; drawNav(); }
+        toast(ok ? '受けたいと伝えました。確定したら現場が表示されます' : '辞退しました');
+      } catch (e) { S.data.myreq = prev; if (S.view === 'myreq') drawReq(prev); throw e; }
+    });
+  };
+  document.querySelectorAll('[data-yes]').forEach(b => b.onclick = () => answer(b.dataset.yes, true));
+  document.querySelectorAll('[data-no]').forEach(b => b.onclick = () => answer(b.dataset.no, false));
+  document.querySelectorAll('[data-go]').forEach(b => b.onclick = async () => {
+    // 確定したばかりの依頼は作業登録の一覧にまだ無いことがあるので、読み直してから開く
+    if (!S.sites || !S.sites.jobs || !S.sites.jobs.some(j => j.id === b.dataset.go)) { try { busy(1); S.sites = await api('sites'); } catch (e) { toast(e.message); } finally { busy(-1); } }
+    const j = S.sites && S.sites.jobs.find(y => y.id === b.dataset.go);
+    S.form = j ? newWorkForm(j) : null; S.tab = 'work'; render();
+  });
+}
+
+/* ===== 職員：依頼を出す・確定する ===== */
+function pageSreq() {
+  if (!S.sreq) S.sreq = { filter: 'open', open: '', creating: false, f: null };
+  if (S.sreq.creating) return view('reqform', 'reqForm', {}, drawSreqForm);
+  view('sreq:' + S.sreq.filter, 'listRequests', { filter: S.sreq.filter }, drawSreq);
+}
+function drawSreq(d) {
+  const st = S.sreq, key = 'sreq:' + st.filter;
+  const cnt = (x, s) => x.answers.filter(a => a.status === s).length;
+  let h = '<h2>依頼管理</h2><button class="primary" id="newReq">＋ 新しい依頼を出す</button><div style="height:12px"></div>' +
+    '<div class="seg" style="margin-bottom:12px">' + [['open', '募集中'], ['confirmed', '確定'], ['all', 'すべて']].map(x => '<button data-f="' + x[0] + '" class="' + (st.filter === x[0] ? 'on' : '') + '">' + x[1] + '</button>').join('') + '</div>';
+  if (!d.rows.length) h += '<div class="card"><p class="muted">この条件の依頼はありません。</p></div>';
+  d.rows.forEach(x => {
+    const open = st.open === x.id;
+    h += '<div class="card"><div class="between"><b>' + esc(x.kind) + '　' + esc(periodText(x)) + '</b><span class="badge b-' + esc(x.status) + '">' + esc(x.status) + '</span></div>' +
+      '<div>' + esc(x.siteName) + '</div><div class="muted">' + esc(rateText(x)) + (x.kind === '応援' ? '・必要 ' + x.people + '人' : '') + '</div>' +
+      '<div class="muted" style="margin-top:4px">送り先：' + esc(x.to) + '</div>' +
+      '<div class="between" style="margin-top:6px"><span>手挙げ <b>' + cnt(x, '手挙げ') + '</b>・確定 <b>' + cnt(x, '確定') + '</b>・未回答 ' + cnt(x, '未回答') + '・辞退 ' + cnt(x, '辞退') + '</span>' +
+      '<button class="chip" data-open="' + esc(x.id) + '">' + (open ? '閉じる' : '返事を見る') + '</button></div>';
+    if (open) {
+      const order = { '手挙げ': 0, '確定': 1, '未回答': 2, '見送り': 3, '辞退': 4, '取消': 5 };
+      const can = x.status !== '取消';
+      h += '<div style="margin-top:8px">' + x.answers.slice().sort((a, b) => order[a.status] - order[b.status]).map(a =>
+        '<label class="check" style="color:var(--ink);margin:0">' +
+        (can && ['手挙げ', '未回答', '確定'].indexOf(a.status) >= 0 ? '<input type="checkbox" data-oy="' + esc(a.oyId) + '"' + (a.status === '確定' ? ' checked disabled' : '') + '>' : '<span style="width:26px"></span>') +
+        '<span style="flex:1">' + esc(a.name) + '</span><span class="badge b-' + esc(a.status) + '">' + esc(a.status) + '</span></label>').join('') + '</div>' +
+        (can ? '<div style="height:10px"></div><button class="primary" data-confirm="' + esc(x.id) + '">チェックした人で確定する</button>' +
+          '<p class="muted">確定すると、選ばれた親方に現場名が表示されます。選ばれなかった人は「見送り」になります。</p>' +
+          '<button style="width:100%;color:var(--ng)" data-cancel="' + esc(x.id) + '">この依頼を取り消す</button>' : '');
+    }
+    h += '</div>';
+  });
+  $('app').innerHTML = h;
+  $('newReq').onclick = () => { st.creating = true; st.f = null; pageSreq(); };
+  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { st.filter = b.dataset.f; st.open = ''; pageSreq(); });
+  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { st.open = st.open === b.dataset.open ? '' : b.dataset.open; drawSreq(S.data[key] || d); });
+  const run = (action, params, msg) => act(async () => {
+    try {
+      const r = await api(action, Object.assign({ filter: st.filter }, params));
+      S.data[key] = r; if (S.view === key) drawSreq(r); toast(typeof msg === 'function' ? msg(r) : msg);
+    } catch (e) { if (S.view === key) drawSreq(S.data[key] || d); throw e; }
+  });
+  document.querySelectorAll('[data-confirm]').forEach(b => b.onclick = () => {
+    const ids = Array.from(document.querySelectorAll('[data-oy]')).filter(c => c.checked).map(c => c.dataset.oy);
+    if (!ids.length) return toast('確定する親方にチェックを入れてください');
+    b.disabled = true; b.textContent = '確定しています…';
+    run('confirmRequest', { id: b.dataset.confirm, ids: ids }, r => r.confirmed + '人を確定しました');
+  });
+  document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
+    modal('<p style="margin-top:0">この依頼を取り消しますか？確定した親方にも取消と表示されます。</p>' +
+      '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto;background:var(--ng);border-color:var(--ng)">取り消す</button></div>');
+    $('mNo').onclick = closeModal;
+    $('mYes').onclick = () => { closeModal(); run('cancelRequest', { id: b.dataset.cancel }, '取り消しました'); };
+  });
+}
+function drawSreqForm(form) {
+  const st = S.sreq;
+  if (!st.f) st.f = { kind: '応援', siteId: '', start: today(), end: '', content: '', rateDay: '', rateHalf: '', rateHour: '', amount: '', people: 1, deadline: '', mode: 'person', ids: [], tags: [], after: false };
+  const f = st.f;
+  const targets = f.mode === 'tag' ? form.oyakata.filter(o => o.tags.some(t => f.tags.indexOf(t) >= 0)) : form.oyakata.filter(o => f.ids.indexOf(o.id) >= 0);
+  const v = (k) => esc(f[k] === undefined || f[k] === null ? '' : f[k]);
+  let h = '<h2>新しい依頼</h2><div class="card">' +
+    '<label>種類</label><div class="seg">' + ['応援', '請負'].map(k => '<button data-kind="' + k + '" class="' + (f.kind === k ? 'on' : '') + '">' + k + '</button>').join('') + '</div>' +
+    '<label for="qsite">現場</label><select id="qsite"><option value="">現場を選んでください</option>' + form.sites.map(s => '<option value="' + esc(s.id) + '"' + (f.siteId === s.id ? ' selected' : '') + '>' + esc(s.name) + (s.area ? '（' + esc(s.area) + '）' : '') + '</option>').join('') + '</select>' +
+    '<p class="muted" style="margin:6px 0 0">親方には確定するまで「地域」だけが見えます。地域・住所は現場マスタで入力します。</p>' +
+    '<div class="row"><div style="flex:1"><label for="qstart">' + (f.kind === '請負' ? '着工日' : '開始日') + '</label><input type="date" id="qstart" value="' + v('start') + '"></div>' +
+    '<div style="flex:1"><label for="qend">' + (f.kind === '請負' ? '完了予定日' : '終了日（1日なら空欄）') + '</label><input type="date" id="qend" value="' + v('end') + '"></div></div>' +
+    '<label for="qcontent">内容</label><input id="qcontent" maxlength="200" value="' + v('content') + '" placeholder="' + (f.kind === '請負' ? '例：2階トイレの給排水一式' : '例：給排水の配管、8時集合') + '">';
+  if (f.kind === '応援') {
+    h += '<label>単価（税抜・使うものだけ）</label><div class="row">' +
+      [['rateDay', '1日'], ['rateHalf', '半日'], ['rateHour', '1時間']].map(x => '<div style="flex:1"><label for="' + x[0] + '" style="margin-top:0">' + x[1] + '</label><input id="' + x[0] + '" type="number" inputmode="numeric" value="' + v(x[0]) + '"></div>').join('') + '</div>' +
+      '<label for="qpeople">必要人数</label><input id="qpeople" type="number" inputmode="numeric" min="1" max="50" value="' + v('people') + '">';
+  } else {
+    h += '<label for="qamount">請負金額（税抜）</label><input id="qamount" class="amount" type="number" inputmode="numeric" value="' + v('amount') + '">';
+  }
+  h += '<label for="qdeadline">返事の期限（任意）</label><input type="date" id="qdeadline" value="' + v('deadline') + '"></div>' +
+    '<div class="card"><b>送り先</b><div class="seg" style="margin-top:8px">' + [['person', '個人を選ぶ'], ['tag', 'タグで一斉に']].map(x => '<button data-mode="' + x[0] + '" class="' + (f.mode === x[0] ? 'on' : '') + '"' + (f.after && x[0] === 'tag' ? ' disabled' : '') + '>' + x[1] + '</button>').join('') + '</div>';
+  if (f.mode === 'tag') {
+    h += form.tags.length ? '<div class="chips" style="margin-top:10px">' + form.tags.map(t => '<button class="chip ' + (f.tags.indexOf(t) >= 0 ? 'on' : '') + '" data-tag="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>'
+      : '<p class="muted">タグがまだありません。親方マスタの「タグ」列に「A、配管」のように入力してください。</p>';
+  } else {
+    h += '<div style="margin-top:8px">' + (form.oyakata.length ? form.oyakata.map(o => '<label class="check" style="color:var(--ink);margin:0"><input type="checkbox" data-pick="' + esc(o.id) + '"' + (f.ids.indexOf(o.id) >= 0 ? ' checked' : '') + '><span style="flex:1">' + esc(o.name) + '</span><span class="muted">' + esc(o.tags.join('・')) + '</span></label>').join('') : '<p class="muted">有効な親方がいません。</p>') + '</div>';
+  }
+  h += '<p id="qcount" style="margin:10px 0 0"><b>' + targets.length + '人</b>に届きます</p>' +
+    '<label class="check" style="color:var(--ink);border:0;margin-top:8px"><input type="checkbox" id="qafter"' + (f.after ? ' checked' : '') + '><span>あとから作る（もう作業が終わった日。選んだ親方に確定済みで届きます）</span></label></div>' +
+    '<button class="primary" id="qsend">' + (f.after ? '確定済みで作成する' : '依頼を出す') + '</button><div style="height:8px"></div><button style="width:100%" id="qback">戻る</button>';
+  $('app').innerHTML = h;
+  const bindIn = (id, k) => { if ($(id)) $(id).oninput = (e) => { f[k] = e.target.value; }; };
+  bindIn('qcontent', 'content'); bindIn('rateDay', 'rateDay'); bindIn('rateHalf', 'rateHalf'); bindIn('rateHour', 'rateHour');
+  bindIn('qamount', 'amount'); bindIn('qpeople', 'people');
+  $('qsite').onchange = (e) => { f.siteId = e.target.value; };
+  ['qstart', 'qend', 'qdeadline'].forEach(id => { $(id).onchange = (e) => { f[{ qstart: 'start', qend: 'end', qdeadline: 'deadline' }[id]] = e.target.value; }; });
+  document.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { f.kind = b.dataset.kind; drawSreqForm(form); });
+  document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { f.mode = b.dataset.mode; drawSreqForm(form); });
+  document.querySelectorAll('[data-tag]').forEach(b => b.onclick = () => { const t = b.dataset.tag; f.tags = f.tags.indexOf(t) >= 0 ? f.tags.filter(x => x !== t) : f.tags.concat([t]); drawSreqForm(form); });
+  document.querySelectorAll('[data-pick]').forEach(c => c.onchange = () => {
+    f.ids = Array.from(document.querySelectorAll('[data-pick]')).filter(x => x.checked).map(x => x.dataset.pick);
+    $('qcount').innerHTML = '<b>' + f.ids.length + '人</b>に届きます';
+  });
+  $('qafter').onchange = (e) => { f.after = e.target.checked; if (f.after) f.mode = 'person'; drawSreqForm(form); };
+  $('qback').onclick = () => { st.creating = false; pageSreq(); };
+  $('qsend').onclick = () => {
+    if (!f.siteId) return toast('現場を選んでください');
+    if (!targets.length && !(f.mode === 'person' && f.ids.length)) return toast('送り先を選んでください');
+    const btn = $('qsend'); btn.disabled = true; btn.textContent = '送っています…';
+    act(async () => {
+      try {
+        st.filter = f.after ? 'confirmed' : 'open';
+        const r = await api('createRequest', Object.assign({}, f, { filter: st.filter }));
+        S.data['sreq:' + st.filter] = r; st.creating = false; st.f = null; st.open = r.createdId;
+        toast(f.after ? '確定済みの依頼を作りました' : r.sent + '人に依頼を出しました');
+        pageSreq();
+      } catch (e) { if ($('qsend')) { btn.disabled = false; btn.textContent = f.after ? '確定済みで作成する' : '依頼を出す'; } throw e; }
+    });
+  };
 }
 
 /* ===== 一人親方：今月の実績 ===== */
@@ -595,10 +803,6 @@ function drawProfile(p, isNew) {
     field('address', '住所 *', 'maxlength="120"', v('address')) +
     field('tel', '電話番号 *', 'inputmode="tel" maxlength="20"', v('tel')) +
     field('invoiceNo', 'インボイス登録番号（ある方のみ）', 'maxlength="14" placeholder="T1234567890123"', v('invoiceNo')) + '</div>' +
-    '<div class="card"><b>単価（税抜）</b><p class="muted" style="margin:4px 0 0">作業登録のときに金額が自動で入ります。</p>' +
-    '<div class="row"><div style="flex:1">' + field('rateDay', '1日', 'type="number" inputmode="numeric"', v('rateDay')) + '</div>' +
-    '<div style="flex:1">' + field('rateHalf', '半日', 'type="number" inputmode="numeric"', v('rateHalf')) + '</div>' +
-    '<div style="flex:1">' + field('rateHour', '1時間', 'type="number" inputmode="numeric"', v('rateHour')) + '</div></div></div>' +
     '<div class="card"><b>振込先</b>' + (!isNew ? '<p class="muted" style="margin:4px 0 0">現在：' + v('bankName') + ' ' + v('branch') + ' ' + v('accountType') + ' ****' + v('accountLast4') + '<br>変更するときだけ入力してください。</p>' : '') +
     field('bankName', '銀行名' + (isNew ? ' *' : ''), 'maxlength="30"', '') +
     field('branch', '支店名' + (isNew ? ' *' : ''), 'maxlength="30"', '') +
@@ -943,7 +1147,7 @@ function drawAdmin(d, nav) {
       '<div class="between"><span class="muted">' + esc(i.id) + '</span><b>' + esc(yen(i.total)) + '</b></div>' +
       (i.pdf ? (window.DEMO_HOOKS && String(i.pdf).indexOf('demo:') === 0 ? '<button class="chip" data-pdf="' + esc(i.pdf) + '">PDFを開く</button>' : '<a class="btn chip" target="_blank" rel="noopener" href="' + esc(i.pdf) + '">PDFを開く</a>') : '') + '</div>').join('') : '<p class="muted">まだ提出はありません。</p>') + '</div>' +
     (window.DEMO_HOOKS ? '<button style="width:100%" id="sheetView">スプレッドシートの中身を見る</button>' : '<a class="btn" style="width:100%" target="_blank" rel="noopener" href="' + esc(d.sheetUrl) + '">スプレッドシートを開く</a>') +
-    '<p class="muted">親方の単価・現場の追加・職員の招待コードはスプレッドシートで管理します。</p>';
+    '<p class="muted">現場（地域・住所）・親方のタグ・職員の招待コードはスプレッドシートで管理します。</p>';
   $('app').innerHTML = h;
   nav.bind();
   if (window.DEMO_HOOKS) {
