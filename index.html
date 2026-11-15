@@ -395,13 +395,17 @@ async function pageWork() {
 function showWork() {
   const jobs = S.sites.jobs;
   if (!S.form || !jobs.some(j => j.id === S.form.reqId)) {
-    const j = jobs.find(x => inRange(x, today()) && !x.done) || jobs.find(x => !x.done) || null;
+    // 今日まだ登録していない依頼を先に選んでおく
+    const j = jobs.find(x => inRange(x, today()) && !x.done && !doneOn(x, today())) || jobs.find(x => inRange(x, today()) && !x.done) || jobs.find(x => !x.done) || null;
     S.form = j ? newWorkForm(j) : null;
   }
   drawWork();
 }
+const doneOn = (j, d) => (j.days && j.days[d]) || null; // その日に登録済みなら作業量の一覧
 function newWorkForm(j) {
-  const d = inRange(j, today()) ? today() : (j.end < today() ? j.end : j.start);
+  // まだ登録していない日を選んでおく（今日→昨日の順）。どちらも登録済みなら今日
+  let d = [today(), yesterday()].find(x => inRange(j, x) && !doneOn(j, x));
+  if (!d) d = inRange(j, today()) ? today() : (j.end < today() ? j.end : j.start);
   return { reqId: j.id, date: d > today() ? today() : d, unit: (unitsOf(j)[0] || ['day'])[0], hours: '', note: '' };
 }
 function workAmount(j, f) {
@@ -422,10 +426,13 @@ function drawWork() {
   }
   // 今日の分は1回押すだけ
   const todays = jobs.filter(j => j.kind === '応援' && inRange(j, today()) && unitsOf(j).some(u => u[0] !== 'hour'));
+  if (todays.length) h += '<h3 style="margin-top:4px">今日 ' + esc(jpDate(today())) + '</h3>';
   todays.forEach((j, i) => {
-    const u = unitsOf(j).find(x => x[0] !== 'hour');
-    h += '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
-      esc(jpDate(today()) + '　' + j.siteName) + '<br>' + esc(yen(j[u[2]])) + '</button>';
+    const u = unitsOf(j).find(x => x[0] !== 'hour'), done = doneOn(j, today());
+    h += done
+      ? '<div class="alert ok" style="margin-bottom:8px"><b>✓ 登録済み：' + esc(j.short || j.siteName) + '（' + esc(done.join('・')) + '）</b><br><span style="font-size:14px">今日の分は登録できています。もう押さなくて大丈夫です。</span></div>'
+      : '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
+        esc(j.siteName) + '<br>' + esc(yen(j[u[2]])) + '　<span class="muted">押すと登録します</span></button>';
   });
   if (todays.length) h += '<p class="muted" style="text-align:center;margin:6px 0 4px">半日・時間・別の日は下で入力</p>';
   if (!S.form) S.form = newWorkForm(jobs[0]);
@@ -433,7 +440,8 @@ function drawWork() {
   const j = jobs.find(x => x.id === f.reqId) || jobs[0];
   h += '<div class="card"><label>依頼（確定した現場）</label>' +
     jobs.map(x => '<button class="persona' + (x.id === j.id ? ' on' : '') + '" data-job="' + esc(x.id) + '" style="' + (x.id === j.id ? 'border:2px solid var(--accent);background:var(--accent-weak)' : '') + '">' +
-      '<b>' + esc(x.siteName) + '</b><small>' + esc(x.kind + '・' + periodText(x) + '・' + rateText(x)) + (x.done ? '・完了報告済み' : '') + '</small></button>').join('');
+      '<b>' + esc(x.siteName) + '</b><small>' + esc(x.kind + '・' + periodText(x) + '・' + rateText(x)) + (x.done ? '・完了報告済み' : '') + '</small>' +
+      (x.kind === '応援' && doneOn(x, today()) ? '<small style="color:var(--ok);font-weight:700">✓ 今日は登録済み</small>' : '') + '</button>').join('');
   if (j.kind === '請負') {
     h += '<label>完了日</label><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(j.end < today() ? j.end : today()) + '">' +
       '<div class="between" style="margin-top:14px"><span>請負金額（税抜）</span><span class="big">' + esc(yen(j.amount)) + '</span></div>' +
@@ -445,15 +453,17 @@ function drawWork() {
     const maxD = j.end < today() ? j.end : today();
     const units = unitsOf(j);
     if (!units.some(u => u[0] === f.unit)) f.unit = units[0][0];
+    const dd = doneOn(j, f.date);
     h += '<label>作業日</label><div class="seg">' +
-      (inRange(j, today()) ? '<button data-date="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日 ' + esc(jpDate(today())) + '</button>' : '') +
-      (inRange(j, yesterday()) ? '<button data-date="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日</button>' : '') + '</div>' +
+      (inRange(j, today()) ? '<button data-date="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日' + (doneOn(j, today()) ? ' ✓済' : ' ' + esc(jpDate(today()))) + '</button>' : '') +
+      (inRange(j, yesterday()) ? '<button data-date="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日' + (doneOn(j, yesterday()) ? ' ✓済' : '') + '</button>' : '') + '</div>' +
       '<div style="height:8px"></div><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(maxD) + '">' +
       '<label>作業量</label><div class="seg">' + units.map(u => '<button data-unit="' + u[0] + '" class="' + (f.unit === u[0] ? 'on' : '') + '">' + u[1] + '</button>').join('') + '</div>' +
       (f.unit === 'hour' ? '<label>時間数</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：3">' : '') +
       '<div class="between" style="margin-top:14px"><span>金額（税抜・依頼の単価）</span><span class="big" id="amountView">' + esc(yen(workAmount(j, f))) + '</span></div>' +
       '<label>作業内容（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '" placeholder="例：2階給水配管">' +
-      '<div style="height:16px"></div><button class="primary" id="save">登録する</button></div>';
+      (dd ? '<div class="alert warn" style="margin:14px 0 0"><b>' + esc(jpDate(f.date)) + 'はこの現場で登録済みです（' + esc(dd.join('・')) + '）。</b><br>同じ日にもう1件登録するときだけ、下のボタンを押してください。</div>' : '') +
+      '<div style="height:16px"></div>' + (dd ? '<button style="width:100%" id="save">同じ日にもう1件登録する</button>' : '<button class="primary" id="save">登録する</button>') + '</div>';
   }
   h += '<p class="muted">一覧にない現場で作業した日は、職員へ連絡してください。</p>';
   $('app').innerHTML = h;
@@ -483,11 +493,11 @@ function saveWork(p, job, force) {
   S.form = null;
   $('app').innerHTML = '<div class="alert saving" id="saveState" style="font-size:17px;background:var(--accent-weak);color:var(--ink)"><b>保存しています</b><br>' +
     esc(jpDate(p.date) + ' ' + job.siteName + ' ' + label) + '</div>' +
-    '<button class="primary" id="again">続けて登録する</button><div style="height:8px"></div>' +
+    '<button class="primary" id="again">別の日・別の現場を登録する</button><div style="height:8px"></div>' +
     '<button style="width:100%" id="toList">今月の実績を見る</button>' +
     (S.mode === 'liff' ? '<div style="height:8px"></div><button style="width:100%" id="close" disabled>保存が終わると閉じられます</button>' : '');
   window.scrollTo(0, 0);
-  $('again').onclick = () => pageWork();
+  $('again').onclick = () => { S.form = null; pageWork(); };
   $('toList').onclick = () => { S.tab = 'list'; render(); };
   act(async () => {
     let r;
@@ -509,8 +519,12 @@ function saveWork(p, job, force) {
       if ($('saveState')) $('saveState').outerHTML = '<div class="alert warn" id="saveState"><b>まだ登録していません</b><br>確認の画面で選んでください。</div>';
       return;
     }
-    if (r.kind === '請負' && S.sites && S.sites.jobs) {
-      const x = S.sites.jobs.find(y => y.id === r.reqId); if (x) x.done = true;
+    if (S.sites && S.sites.jobs) {
+      const x = S.sites.jobs.find(y => y.id === r.reqId);
+      if (x) {
+        if (r.kind === '請負') x.done = true;
+        x.days = x.days || {}; (x.days[r.date] = x.days[r.date] || []).push(r.unit === '時間' ? r.hours + '時間' : r.unit);
+      }
       if (S.me) cacheSet({ me: S.me, sites: S.sites });
     }
     // 今月の実績の一覧にも、手元で1行足しておく（開いたときにすぐ出る）
@@ -739,6 +753,9 @@ function drawList(data, nav) {
         try {
           const d = await api('cancelWork', { id: r.id, month: nav.m });
           S.data[key] = d; if (S.view === key) drawList(d, nav); toast('取り消しました');
+          // 作業登録の画面の「登録済み」表示からも外す
+          const job = S.sites && S.sites.jobs && S.sites.jobs.find(x => x.id === r.reqId);
+          if (job && job.days && job.days[r.date]) { job.days[r.date].pop(); if (!job.days[r.date].length) delete job.days[r.date]; if (job.kind === '請負') job.done = false; }
         } catch (e) { S.data[key] = prev; if (S.view === key) drawList(prev, nav); throw e; }
       });
     };
