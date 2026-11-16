@@ -177,6 +177,14 @@ function postOnce(body) {
   return fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined })
     .then(r => r.json()).finally(() => { if (t) clearTimeout(t); });
 }
+const NET_ERR = '読み込めませんでした。電波が弱いか、サーバーが混み合っている可能性があります。';
+// 読み込み系は、失敗しても間をあけて最大3回まで試す（サーバーの一時的な失敗にも対応）
+function postRetry(body, waits) {
+  return postOnce(body).catch(e => {
+    if (!waits.length) throw e;
+    return new Promise(r => setTimeout(r, waits[0])).then(() => postRetry(body, waits.slice(1)));
+  });
+}
 function api(action, params) {
   const body = Object.assign({ action }, params || {});
   if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = S.idToken;
@@ -184,8 +192,8 @@ function api(action, params) {
   const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary'].indexOf(action) >= 0;
   const p = S.mode === 'gas'
     ? new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).api(body))
-    : postOnce(body).catch(e => { if (!safe) throw e; return new Promise(r => setTimeout(r, 800)).then(() => postOnce(body)); })
-      .catch(() => { throw new Error('通信がつながりにくいようです。電波の良いところでもう一度お試しください'); });
+    : postRetry(body, safe ? [800, 2000] : [])
+      .catch(() => { throw new Error(NET_ERR); });
   return p.then(r => { if (!r || !r.ok) throw new Error((r && r.error) || '通信に失敗しました'); return r.data; });
 }
 // 書き込み系の操作（登録・承認など）。終わるまで同じ操作の二重押しを受け付けない
@@ -208,7 +216,14 @@ async function view(key, action, params, draw) {
     const same = hit && JSON.stringify(hit) === JSON.stringify(d);
     S.data[key] = d;
     if (S.view === key && !same && !S.touched && !S.acting && !document.querySelector('.modal')) draw(d);
-  } catch (e) { if (S.view === key) { if (!hit) $('app').innerHTML = '<div class="alert ng">' + esc(e.message || String(e)) + '</div>'; else console.warn(e); } }
+  } catch (e) {
+    if (S.view === key) {
+      if (!hit) {
+        $('app').innerHTML = '<div class="alert ng">' + esc(e.message || String(e)) + '</div><button class="primary" id="reload">もう一度読み込む</button>';
+        $('reload').onclick = () => view(key, action, params, draw);
+      } else console.warn(e);
+    }
+  }
   finally { if (bar) busy(-1); }
 }
 // よく開く画面の内容を、起動直後に裏で先に読み込んでおく
@@ -257,7 +272,10 @@ async function boot() {
 function loadScript(src) {
   return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.charset = 'utf-8'; s.onload = res; s.onerror = () => rej(new Error('読み込み失敗')); document.head.appendChild(s); });
 }
-function fatal(msg) { $('app').innerHTML = '<div class="alert ng">' + esc(msg) + '</div>'; }
+function fatal(msg) {
+  $('app').innerHTML = '<div class="alert ng">' + esc(msg) + '</div><button class="primary" id="reload">もう一度読み込む</button>';
+  $('reload').onclick = () => location.reload();
+}
 
 function showPersonas() {
   S.demoUser = ''; S.me = null; $('nav').classList.add('hidden'); $('who').textContent = 'デモモード';
