@@ -170,19 +170,29 @@ function modal(html) { $('overlay').innerHTML = '<div class="modal" id="mbg"><di
 function closeModal() { $('overlay').innerHTML = ''; }
 
 /* ===== サーバーとの通信 ===== */
+// 通信が途切れたり返事が来なかったりしたときは、1回だけ自動で送り直す（20秒で打ち切り）
+function postOnce(body) {
+  const ctl = window.AbortController ? new AbortController() : null;
+  const t = ctl ? setTimeout(() => ctl.abort(), 20000) : null;
+  return fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined })
+    .then(r => r.json()).finally(() => { if (t) clearTimeout(t); });
+}
 function api(action, params) {
   const body = Object.assign({ action }, params || {});
   if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = S.idToken;
+  // 書き込み系は二重に登録されないよう送り直さない
+  const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary'].indexOf(action) >= 0;
   const p = S.mode === 'gas'
     ? new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).api(body))
-    : fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
+    : postOnce(body).catch(e => { if (!safe) throw e; return new Promise(r => setTimeout(r, 800)).then(() => postOnce(body)); })
+      .catch(() => { throw new Error('通信がつながりにくいようです。電波の良いところでもう一度お試しください'); });
   return p.then(r => { if (!r || !r.ok) throw new Error((r && r.error) || '通信に失敗しました'); return r.data; });
 }
 // 書き込み系の操作（登録・承認など）。終わるまで同じ操作の二重押しを受け付けない
 async function act(fn) {
   if (S.acting) { toast('前の操作を処理中です。少しお待ちください'); return; }
   S.acting = true; busy(1);
-  try { const r = await fn(); refreshBadges(); return r; }
+  try { const r = await fn(); S.sitesAt = 0; refreshBadges(true); return r; } // 書き込んだら、作業登録の一覧も次に開いたとき確かめ直す
   catch (e) { closeModal(); toast(e.message || String(e)); console.warn(e); }
   finally { S.acting = false; busy(-1); }
 }
@@ -191,19 +201,24 @@ async function view(key, action, params, draw) {
   S.view = key; S.touched = false;
   const hit = S.data[key];
   if (hit) draw(hit); else $('app').innerHTML = '<div class="card muted">読み込み中…</div>';
-  busy(1);
+  // 前の内容を出せているときは、上のバーは出さずに裏で静かに確かめる
+  const bar = !hit; if (bar) busy(1);
   try {
     const d = await api(action, params);
     const same = hit && JSON.stringify(hit) === JSON.stringify(d);
     S.data[key] = d;
     if (S.view === key && !same && !S.touched && !S.acting && !document.querySelector('.modal')) draw(d);
-  } catch (e) { if (S.view === key) { if (!hit) $('app').innerHTML = '<div class="alert ng">' + esc(e.message || String(e)) + '</div>'; else toast(e.message || String(e)); } }
-  finally { busy(-1); }
+  } catch (e) { if (S.view === key) { if (!hit) $('app').innerHTML = '<div class="alert ng">' + esc(e.message || String(e)) + '</div>'; else console.warn(e); } }
+  finally { if (bar) busy(-1); }
 }
 // よく開く画面の内容を、起動直後に裏で先に読み込んでおく
+// 先読みは同時に送らず、1件ずつ順番に（サーバーが混まないように）
+let PREFETCH_Q = Promise.resolve();
 function prefetch(key, action, params) {
-  if (S.data[key]) return;
-  api(action, params).then(d => { if (!S.data[key]) S.data[key] = d; }).catch(() => {});
+  PREFETCH_Q = PREFETCH_Q.then(() => {
+    if (S.data[key]) return;
+    return api(action, params).then(d => { if (!S.data[key]) S.data[key] = d; }).catch(() => {});
+  });
 }
 function prefetchAll() {
   const me = S.me; if (!me) return;
@@ -215,7 +230,7 @@ function prefetchAll() {
     }
     if (me.staff && me.staff.role !== '従業員') { prefetch('pending', 'pending', {}); prefetch('sreq:open', 'listRequests', { filter: 'open' }); }
     if (me.staff) prefetch('rlist:' + thisMonth(), 'listReports', { month: thisMonth() });
-  }, 300);
+  }, 1500);
 }
 
 /* ===== 起動 ===== */
@@ -279,7 +294,7 @@ async function start() {
     return;
   }
   busy(1);
-  try { const d = await api('boot'); S.me = d.me; S.sites = d.sites; S.badges = d.badges || {}; setApp(d.app); if (d.report) S.report = d.report; cacheSet(d); }
+  try { const d = await api('boot'); S.me = d.me; S.sites = d.sites; S.sitesAt = Date.now(); S.badgesAt = Date.now(); S.badges = d.badges || {}; setApp(d.app); if (d.report) S.report = d.report; cacheSet(d); }
   catch (e) { busy(-1); return fatal(e.message || String(e)); }
   busy(-1);
   render();
@@ -291,8 +306,9 @@ function setApp(app) {
   if (app.name) { $('appName').textContent = app.name; document.title = app.name; }
 }
 async function refreshInBackground(before) {
+  S.refreshing = true;
   try {
-    const d = await api('boot');
+    const d = await api('boot'); S.sitesAt = Date.now(); S.badgesAt = Date.now();
     const slim = cacheSet(d) || d;
     if (JSON.stringify(slim) === before) return;
     S.me = d.me; setApp(d.app);
@@ -301,6 +317,7 @@ async function refreshInBackground(before) {
     if (!S.touched && !S.acting && !document.querySelector('.modal')) { S.sites = d.sites; S.form = null; if (d.report) { S.report = d.report; S.rform = null; } render(); }
     else { if (d.sites) S.sites = d.sites; if (d.report) S.report = d.report; }
   } catch (e) { console.warn('refresh', e); }
+  finally { S.refreshing = false; }
 }
 document.addEventListener('input', () => { S.touched = true; }, true);
 document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('main')) S.touched = true; }, true);
@@ -318,14 +335,15 @@ function tabsFor(me) {
 const BADGE_DOT = ['invoice', 'report']; // 件数ではなく印だけ出すタブ
 let BADGE_T = null;
 /** 印を最新にする（操作のあとやタブを切り替えたとき。続けて呼ばれたら1回にまとめる） */
-function refreshBadges() {
+function refreshBadges(force) {
   if (!S.me || (!S.me.oyakata && !S.me.staff)) return;
+  if (!force && (S.refreshing || Date.now() - (S.badgesAt || 0) < 30000)) return; // タブを切り替えただけなら30秒に1回まで
   clearTimeout(BADGE_T);
-  BADGE_T = setTimeout(() => api('badges').then(b => {
+  BADGE_T = setTimeout(() => { S.badgesAt = Date.now(); return api('badges').then(b => {
     if (JSON.stringify(b) === JSON.stringify(S.badges)) return;
     S.badges = b || {}; if (S.sites) S.sites.waiting = S.badges.req || 0;
     if (S.me && document.getElementById('nav').innerHTML) drawNav();
-  }).catch(e => console.warn('badges', e)), 400);
+  }).catch(e => console.warn('badges', e)); }, 400);
 }
 function drawNav() {
   const tabs = tabsFor(S.me), nav = $('nav');
@@ -376,21 +394,22 @@ async function pageWork() {
   $('app').innerHTML = '<div class="card">読み込み中…</div>';
   if (!S.sites || !S.sites.jobs) {
     S.view = 'work'; busy(1);
-    try { S.sites = await api('sites'); } catch (e) { busy(-1); return fatal(e.message || String(e)); }
+    try { S.sites = await api('sites'); S.sitesAt = Date.now(); } catch (e) { busy(-1); return fatal(e.message || String(e)); }
     busy(-1);
     if (!S.me || S.tab !== 'work') return;
   }
   S.view = 'work'; S.touched = false;
   showWork();
-  // 確定した依頼が増えていないか、裏で確かめて変わっていれば描き直す
+  // 確定した依頼が増えていないか、裏で静かに確かめて変わっていれば描き直す（直前に読んだばかりなら省く）
+  if (S.refreshing || (S.sites.jobs.length && Date.now() - (S.sitesAt || 0) < 20000)) return;
   const before = JSON.stringify(S.sites);
-  busy(1);
+  S.sitesAt = Date.now();
   api('sites').then(d => {
     if (JSON.stringify(d) === before) return;
     S.sites = d; if (S.me) cacheSet({ me: S.me, sites: S.sites });
     drawNav();
     if (S.view === 'work' && S.tab === 'work' && !S.touched && !S.acting && !document.querySelector('.modal')) showWork();
-  }).catch(e => console.warn('sites', e)).finally(() => busy(-1));
+  }).catch(e => console.warn('sites', e));
 }
 function showWork() {
   const jobs = S.sites.jobs;
