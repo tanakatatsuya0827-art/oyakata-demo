@@ -170,30 +170,45 @@ function modal(html) { $('overlay').innerHTML = '<div class="modal" id="mbg"><di
 function closeModal() { $('overlay').innerHTML = ''; }
 
 /* ===== サーバーとの通信 ===== */
-// 通信が途切れたり返事が来なかったりしたときは、1回だけ自動で送り直す（20秒で打ち切り）
-function postOnce(body) {
+// GASは時々（1割ほど）返事をしないまま止まることがある（サーバー側で0秒「失敗」になる）。
+// そこで、返事が遅いときは同じ問い合わせをもう1本送り、先に返ってきた方を使う（最大3本）。
+function postOnce(body, ms) {
   const ctl = window.AbortController ? new AbortController() : null;
-  const t = ctl ? setTimeout(() => ctl.abort(), 20000) : null;
+  const t = ctl ? setTimeout(() => ctl.abort(), ms) : null;
   return fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl ? ctl.signal : undefined })
     .then(r => r.json()).finally(() => { if (t) clearTimeout(t); });
 }
 const NET_ERR = '読み込めませんでした。電波が弱いか、サーバーが混み合っている可能性があります。';
-// 読み込み系は、失敗しても間をあけて最大3回まで試す（サーバーの一時的な失敗にも対応）
-function postRetry(body, waits) {
-  return postOnce(body).catch(e => {
-    if (!waits.length) throw e;
-    return new Promise(r => setTimeout(r, waits[0])).then(() => postRetry(body, waits.slice(1)));
+// starts: 何ミリ秒後に次の1本を送るか（返事が来た時点で打ち切り）。each: 1本あたりの待ち時間の上限
+function postHedged(body, starts, each) {
+  return new Promise((resolve, reject) => {
+    let done = false, launched = 0, failed = 0, timer = null;
+    const next = () => {
+      clearTimeout(timer);
+      if (done || launched >= starts.length) return;
+      launched++;
+      postOnce(body, each).then(r => { if (!done) { done = true; clearTimeout(timer); resolve(r); } }, e => {
+        failed++;
+        if (done) return;
+        if (failed >= starts.length) { done = true; clearTimeout(timer); reject(e); }
+        else if (failed === launched) { clearTimeout(timer); timer = setTimeout(next, 600); } // 送った分が全部失敗したら、すぐ次を送る
+      });
+      if (launched < starts.length) timer = setTimeout(next, starts[launched] - starts[launched - 1]);
+    };
+    next();
   });
 }
+const newOpId = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 function api(action, params) {
   const body = Object.assign({ action }, params || {});
   if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = S.idToken;
-  // 書き込み系は二重に登録されないよう送り直さない
   const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary'].indexOf(action) >= 0;
+  // 書き込み系は操作ごとの番号をつけて送る。同じ番号が届いてもサーバーは1回しか処理しない（二重登録にならない）
+  if (!safe) body.opId = newOpId();
   const p = S.mode === 'gas'
     ? new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).api(body))
-    : postRetry(body, safe ? [800, 2000] : [])
-      .catch(() => { throw new Error(NET_ERR); });
+    : postHedged(body, safe ? [0, 4000, 10000] : [0, 12000, 25000], safe ? 25000 : 50000)
+      .catch(() => { throw new Error(safe ? NET_ERR : '通信が途切れました。登録できたかどうか、画面を開き直して確かめてください。'); });
   return p.then(r => { if (!r || !r.ok) throw new Error((r && r.error) || '通信に失敗しました'); return r.data; });
 }
 // 書き込み系の操作（登録・承認など）。終わるまで同じ操作の二重押しを受け付けない
