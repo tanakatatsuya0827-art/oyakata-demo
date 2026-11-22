@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>アースライン 作業実績</title>
 <link rel="preconnect" href="https://static.line-scdn.net">
+<link rel="preload" href="https://static.line-scdn.net/liff/edge/2/sdk.js" as="script">
 <link rel="preconnect" href="https://script.google.com">
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <style>
@@ -199,9 +200,11 @@ function postHedged(body, starts, each) {
   });
 }
 const newOpId = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-function api(action, params) {
+async function api(action, params) {
+  if (S.mode === 'liff' && !S.idToken && S.tokenReady) await S.tokenReady; // 先に画面を出したときは、LINEの本人確認が終わってから送る
   const body = Object.assign({ action }, params || {});
   if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = S.idToken;
+  if (action === 'boot' && S.perf && !S.perfSent) { body.perf = S.perf; S.perfSent = true; } // 開くまでの時間（調査用）
   const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary'].indexOf(action) >= 0;
   // 書き込み系は操作ごとの番号をつけて送る。同じ番号が届いてもサーバーは1回しか処理しない（二重登録にならない）
   if (!safe) body.opId = newOpId();
@@ -271,18 +274,47 @@ async function boot() {
 
   if (S.mode === 'liff') {
     if (!CONFIG.API_URL || !CONFIG.LIFF_ID) return fatal('index.html の CONFIG（API_URL と LIFF_ID）を設定してください。');
+    mark('html');
+    // ① 前にこのスマホで開いたことがあれば、LINEの準備を待たずに前回の内容ですぐ画面を出す
+    S.tab = pageParam();
+    let early = '';
+    try { early = localStorage.getItem('oyakata-last') || ''; } catch (e) { /* 覚えていなければ普通に開く */ }
+    let releaseToken;
+    S.tokenReady = new Promise(r => { releaseToken = r; });
+    if (early) { S.cacheKey = early; if (cacheGet()) { start(true); mark('shown'); } else early = ''; }
+    // ② LINEの本人確認（裏で進める）
     try {
-      await loadScript('https://static.line-scdn.net/liff/edge/2/sdk.js');
-      await liff.init({ liffId: CONFIG.LIFF_ID });
+      await loadScript('https://static.line-scdn.net/liff/edge/2/sdk.js'); mark('sdk');
+      await liff.init({ liffId: CONFIG.LIFF_ID }); mark('init');
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
       S.idToken = liff.getIDToken();
       if (!S.idToken) return fatal('LINEの本人確認ができませんでした。LIFFの設定で「openid」を有効にしてください。');
-      try { const t = liff.getDecodedIDToken(); if (t && t.sub) S.cacheKey = 'oyakata-boot:' + t.sub; } catch (e) { /* 覚えておく機能なしで続ける */ }
+      try { const t = liff.getDecodedIDToken(); if (t && t.sub) S.cacheKey = 'oyakata-boot:' + t.sub; } catch (e) { S.cacheKey = ''; }
     } catch (e) { return fatal('LINEとの接続に失敗しました：' + e.message); }
-    S.tab = new URLSearchParams(location.search).get('page') || q.get('page') || ''; // リッチメニューの ?page=… （init後に読む）
+    releaseToken();
+    const tab = pageParam(); if (tab && tab !== S.tab && !early) S.tab = tab;
+    // 先に出した内容が別のLINEアカウントのものだったら、出し直す
+    if (early && early !== S.cacheKey) { S.me = null; S.sites = null; S.data = {}; S.badges = {}; S.report = null; early = ''; }
+    if (early) { refreshInBackground(S.shownJson); prefetchAll(); return; }
     return start();
   }
   showPersonas();
+}
+/* 開くまでの時間を記録（調査用。サーバーの実行ログに残る） */
+function mark(k) {
+  try {
+    const p = S.perf || (S.perf = {});
+    p[k] = Math.round(performance.now());
+    if (k === 'html') { const n = performance.getEntriesByType('navigation')[0]; if (n) { p.res = Math.round(n.responseEnd); p.type = n.type; } p.cached = !!(S.cacheKey || (localStorage.getItem('oyakata-last'))); }
+  } catch (e) { /* 記録できなくても動く */ }
+}
+/** リッチメニューの ?page=… 。LINEが liff.state に入れて渡してくる場合も読む */
+function pageParam() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('page')) return q.get('page');
+  const st = q.get('liff.state');
+  if (st) { const i = st.indexOf('?'); if (i >= 0) { const p = new URLSearchParams(st.slice(i + 1)).get('page'); if (p) return p; } }
+  return '';
 }
 function loadScript(src) {
   return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.charset = 'utf-8'; s.onload = res; s.onerror = () => rej(new Error('読み込み失敗')); document.head.appendChild(s); });
@@ -313,21 +345,23 @@ function cacheSet(d) {
   const slim = { me: { demo: d.me.demo, staff: d.me.staff,
     oyakata: o ? { id: o.id, name: o.name, status: o.status, rateDay: o.rateDay, rateHalf: o.rateHalf, rateHour: o.rateHour } : null },
     sites: d.sites, badges: d.badges || S.badges, app: d.app || S.app, report: d.report || (S.me && S.me.staff && S.me.staff.role === '従業員' ? S.report : null) };
-  try { localStorage.setItem(S.cacheKey, JSON.stringify(slim)); } catch (e) { /* 保存できなくても動く */ }
+  try { localStorage.setItem(S.cacheKey, JSON.stringify(slim)); localStorage.setItem('oyakata-last', S.cacheKey); } catch (e) { /* 保存できなくても動く */ }
   return slim;
 }
-async function start() {
+async function start(early) {
   S.touched = false;
   const cached = cacheGet();
   if (cached) {
     S.me = cached.me; S.sites = cached.sites; S.badges = cached.badges || {}; setApp(cached.app); if (cached.report) S.report = cached.report;
     render();
-    refreshInBackground(JSON.stringify(cached));
+    S.shownJson = JSON.stringify(cached);
+    if (early) return; // 本人確認が終わったら boot() が続きをする
+    refreshInBackground(S.shownJson);
     prefetchAll();
     return;
   }
   busy(1);
-  try { const d = await api('boot'); S.me = d.me; S.sites = d.sites; S.sitesAt = Date.now(); S.badgesAt = Date.now(); S.badges = d.badges || {}; setApp(d.app); if (d.report) S.report = d.report; cacheSet(d); }
+  try { const d = await api('boot'); mark('boot'); S.me = d.me; S.sites = d.sites; S.sitesAt = Date.now(); S.badgesAt = Date.now(); S.badges = d.badges || {}; setApp(d.app); if (d.report) S.report = d.report; cacheSet(d); }
   catch (e) { busy(-1); return fatal(e.message || String(e)); }
   busy(-1);
   render();
@@ -341,7 +375,7 @@ function setApp(app) {
 async function refreshInBackground(before) {
   S.refreshing = true;
   try {
-    const d = await api('boot'); S.sitesAt = Date.now(); S.badgesAt = Date.now();
+    const d = await api('boot'); S.sitesAt = Date.now(); S.badgesAt = Date.now(); mark('boot');
     const slim = cacheSet(d) || d;
     if (JSON.stringify(slim) === before) return;
     S.me = d.me; setApp(d.app);
