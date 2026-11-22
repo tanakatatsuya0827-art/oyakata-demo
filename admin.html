@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>作業実績 管理画面</title>
+<link rel="preconnect" href="https://static.line-scdn.net">
+<link rel="preconnect" href="https://script.google.com">
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --ink: #1d2433; --sub: #5f6b7a; --line: #dfe3e8; --head: #f8f9fb;
+    --accent: #0b6bcb; --accent-weak: #e6f0fb; --ok: #1e7a45; --ok-weak: #e5f5ec;
+    --warn: #8f5600; --warn-weak: #fff3dd; --ng: #b42323; --ng-weak: #fdeaea; --field: #fff;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #12161d; --card: #1b212b; --ink: #e6eaf0; --sub: #9aa6b5; --line: #2e3744; --head: #202834;
+    --accent: #5aa7f0; --accent-weak: #1a2e45; --ok: #5cc98a; --ok-weak: #173325;
+    --warn: #e0a64a; --warn-weak: #3a2c12; --ng: #f07a7a; --ng-weak: #3d1b1b; --field: #141a22; color-scheme: dark; } }
+  :root[data-theme="dark"] {
+    --bg: #12161d; --card: #1b212b; --ink: #e6eaf0; --sub: #9aa6b5; --line: #2e3744; --head: #202834;
+    --accent: #5aa7f0; --accent-weak: #1a2e45; --ok: #5cc98a; --ok-weak: #173325;
+    --warn: #e0a64a; --warn-weak: #3a2c12; --ng: #f07a7a; --ng-weak: #3d1b1b; --field: #141a22; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif; }
+  a { color: var(--accent); }
+  button, select, input { font: inherit; color: var(--ink); }
+  button { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  select, input[type=search] { border: 1px solid var(--line); background: var(--field); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+    background: var(--card); border-bottom: 1px solid var(--line); }
+  .top .brand { font-weight: 700; font-size: 15px; white-space: nowrap; }
+  .top .brand small { display: block; font-weight: 400; color: var(--sub); font-size: 12px; }
+  .month { display: flex; align-items: center; gap: 6px; margin-left: 12px; }
+  .month b { font-size: 16px; min-width: 7.5em; text-align: center; }
+  .top .right { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--sub); white-space: nowrap; }
+  .layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: calc(100vh - 58px); }
+  nav { border-right: 1px solid var(--line); background: var(--card); padding: 12px 8px; }
+  nav a { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; border-radius: 8px;
+    color: var(--ink); text-decoration: none; margin-bottom: 2px; }
+  nav a:hover { background: var(--head); }
+  nav a.on { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
+  nav .cnt { font-size: 12px; color: var(--sub); font-weight: 400; }
+  nav .sep { height: 1px; background: var(--line); margin: 10px 8px; }
+  main { padding: 20px 24px 48px; min-width: 0; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--sub); margin: 0 0 16px; }
+  h2 { font-size: 15px; margin: 24px 0 10px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile .k { color: var(--sub); font-size: 12px; }
+  .tile .v { font-size: 22px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--sub); font-size: 12px; margin-top: 2px; }
+  .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
+  .tile.ng { border-color: var(--ng); } .tile.ng .v { color: var(--ng); }
+  .tile a { color: inherit; text-decoration: none; display: block; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 0 20px; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .bar input[type=search] { width: 220px; }
+  .bar .sp { flex: 1; }
+  .bar .info { color: var(--sub); }
+  .tbl { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: auto; max-height: calc(100vh - 210px); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--head); font-weight: 700; font-size: 12px; color: var(--sub); white-space: nowrap; z-index: 1; }
+  th.s { cursor: pointer; user-select: none; } th.s:hover { color: var(--ink); }
+  th .ar { font-size: 10px; margin-left: 3px; }
+  tbody tr:hover td { background: var(--head); }
+  tfoot td { position: sticky; bottom: 0; background: var(--head); font-weight: 700; border-top: 2px solid var(--line); border-bottom: 0; }
+  td.wrap { min-width: 220px; max-width: 420px; white-space: normal; }
+  td.nw { white-space: nowrap; }
+  .empty { padding: 28px; text-align: center; color: var(--sub); }
+  .muted { color: var(--sub); }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; white-space: nowrap; font-weight: 700;
+    background: var(--head); color: var(--sub); border: 1px solid var(--line); }
+  .b-ok { background: var(--ok-weak); color: var(--ok); border-color: transparent; }
+  .b-warn { background: var(--warn-weak); color: var(--warn); border-color: transparent; }
+  .b-ng { background: var(--ng-weak); color: var(--ng); border-color: transparent; }
+  .b-blue { background: var(--accent-weak); color: var(--accent); border-color: transparent; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .note { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .center { max-width: 520px; margin: 12vh auto; text-align: center; padding: 0 16px; }
+  .center p { color: var(--sub); line-height: 1.7; }
+  .loading { height: 3px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%;
+    background-repeat: no-repeat; animation: ld 1.1s linear infinite; position: fixed; inset: 0 0 auto; z-index: 20; }
+  @keyframes ld { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px; gap: 4px; }
+    nav a { white-space: nowrap; margin: 0; } nav .sep { display: none; }
+    .top { flex-wrap: wrap; padding: 8px 16px; } .top .right { margin-left: 0; }
+    main { padding: 16px; } .tbl { max-height: none; }
+  }
+  @media print { nav, .top .right, .bar, .month button { display: none !important; } .layout { display: block; } .tbl { max-height: none; overflow: visible; } }
+</style>
+</head>
+<body>
+<div id="busy"></div>
+<div id="root"><div class="center"><p>読み込み中…</p></div></div>
+
+<script>
+const CONFIG = {
+  API_URL: 'https://script.google.com/macros/s/AKfycbyW-zo7TUjNzuIFn7pfXc4_XDD62H-wlodSHXnJ1HoNKySZVEfjd1pV1_VyV0w69rsoow/exec',          // GASウェブアプリのURL（index.html と同じ）
+  LIFF_ID: '2012354614-iopgXgnC',          // LIFF ID（index.html と同じ）
+};
+
+/* ===== 小さな道具 ===== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const yen = n => (Number(n) || 0).toLocaleString('ja-JP') + '円';
+const n1 = n => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('ja-JP');
+const WD = ['日', '月', '火', '水', '木', '金', '土'];
+const md = d => { if (!d) return ''; const x = new Date(d.slice(0, 10) + 'T00:00:00'); return (x.getMonth() + 1) + '/' + x.getDate() + '（' + WD[x.getDay()] + '）'; };
+const ym = s => s.slice(0, 4) + '年' + Number(s.slice(5, 7)) + '月';
+const addMonth = (s, k) => { const d = new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1 + k, 1); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); };
+const thisMonth = () => { const d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); };
+const uniq = a => a.filter((x, i) => x && a.indexOf(x) === i);
+const sum = (rows, k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+const STATUS_CLASS = { '承認済': 'b-ok', '請求済': 'b-blue', '登録済': 'b-warn', '差戻': 'b-ng', '提出済': 'b-ok', '有効': 'b-ok', '申請中': 'b-warn',
+  '招待中': 'b-warn', '停止': 'b-ng', '募集中': 'b-warn', '確定': 'b-ok', '取消': 'b-ng', '終了': '', '完了': '', '手挙げ': 'b-blue', '未回答': '', '見送り': '', '辞退': 'b-ng' };
+const badge = s => s ? '<span class="badge ' + (STATUS_CLASS[s] || '') + '">' + esc(s) + '</span>' : '';
+function busy(on) { $('busy').innerHTML = on ? '<div class="loading" role="progressbar" aria-label="読み込み中"></div>' : ''; }
+
+/* ===== サーバーとの通信（返事が止まったときは同じ問い合わせをもう1本送る） ===== */
+function postOnce(body, ms) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+  return fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl.signal })
+    .then(r => r.json()).finally(() => clearTimeout(t));
+}
+function postHedged(body, starts, each) {
+  return new Promise((resolve, reject) => {
+    let done = false, launched = 0, failed = 0, timer = null;
+    const next = () => {
+      clearTimeout(timer);
+      if (done || launched >= starts.length) return;
+      launched++;
+      postOnce(body, each).then(r => { if (!done) { done = true; clearTimeout(timer); resolve(r); } }, e => {
+        failed++;
+        if (done) return;
+        if (failed >= starts.length) { done = true; clearTimeout(timer); reject(e); }
+        else if (failed === launched) { clearTimeout(timer); timer = setTimeout(next, 600); }
+      });
+      if (launched < starts.length) timer = setTimeout(next, starts[launched] - starts[launched - 1]);
+    };
+    next();
+  });
+}
+async function api(action, params) {
+  const body = Object.assign({ action, idToken: S.idToken }, params || {});
+  let r;
+  try { r = await postHedged(body, [0, 5000, 12000], 30000); }
+  catch (e) { throw new Error('読み込めませんでした。通信が不安定か、サーバーが混み合っている可能性があります。'); }
+  if (!r || !r.ok) throw new Error((r && r.error) || '読み込みに失敗しました');
+  return r.data;
+}
+
+/* ===== 状態 ===== */
+const S = { idToken: '', month: thisMonth(), data: {}, view: 'home', f: {}, sort: {} };
+const VIEWS = [
+  ['home', '概要'], ['works', '作業実績'], ['invoices', '請求書'], ['reports', '日報'], ['requests', '応援依頼'],
+  ['sep'], ['oyakata', '一人親方'], ['staff', '職員'], ['sites', '現場'],
+];
+
+/* ===== 起動・ログイン ===== */
+function screen(html) { $('root').innerHTML = '<div class="center">' + html + '</div>'; }
+async function start() {
+  if (!CONFIG.API_URL || !CONFIG.LIFF_ID) { screen('<h1>設定が必要です</h1><p>admin.html の CONFIG に API_URL と LIFF_ID を入れてください（index.html と同じ値）。</p>'); return; }
+  try {
+    await liff.init({ liffId: CONFIG.LIFF_ID });
+    if (!liff.isLoggedIn()) {
+      screen('<h1>作業実績 管理画面</h1><p>事務の方が使う、見るための画面です。<br>LINEでログインしてください。</p><button id="login" style="padding:12px 24px;font-size:16px">LINEでログイン</button>');
+      $('login').onclick = () => liff.login({ redirectUri: location.href.split('#')[0] });
+      return;
+    }
+    S.idToken = liff.getIDToken();
+  } catch (e) { screen('<h1>LINEの準備に失敗しました</h1><p>' + esc(e.message || e) + '</p><button onclick="location.reload()">もう一度</button>'); return; }
+  const h = location.hash.slice(1).split('/');
+  if (VIEWS.some(v => v[0] === h[0])) S.view = h[0];
+  if (/^\d{4}-\d{2}$/.test(h[1] || '')) S.month = h[1];
+  await load(false);
+}
+function relogin() { try { liff.logout(); } catch (e) {} liff.login({ redirectUri: location.href.split('#')[0] }); }
+
+async function load(force) {
+  const key = S.month;
+  if (!force && S.data[key]) { render(); return; }
+  busy(true);
+  try { S.data[key] = await api('adminData', { month: key }); render(); }
+  catch (e) {
+    const msg = e.message || String(e);
+    if (/本人確認|ログイン/.test(msg)) screen('<h1>ログインし直してください</h1><p>' + esc(msg) + '</p><button id="re">LINEでログインし直す</button>');
+    else if (/事務員のみ|職員として登録/.test(msg)) screen('<h1>この画面は事務の方だけが使えます</h1><p>' + esc(msg) + '<br>LINEアプリで招待コードを入力して、事務として登録してから開いてください。</p><button id="re">別のLINEアカウントでログイン</button>');
+    else if (S.data[key]) { render(); alertBar(msg); }
+    else screen('<h1>読み込めませんでした</h1><p>' + esc(msg) + '</p><button onclick="load(true)">もう一度読み込む</button>');
+    if ($('re')) $('re').onclick = relogin;
+  } finally { busy(false); }
+}
+function alertBar(msg) { const m = document.querySelector('main'); if (m) m.insertAdjacentHTML('afterbegin', '<div class="note" style="border-color:var(--ng);margin-bottom:12px">' + esc(msg) + '</div>'); }
+
+/* ===== 画面の枠 ===== */
+function render() {
+  const d = S.data[S.month];
+  const cnt = { works: d.works.length, invoices: d.invoices.length, reports: d.reports.length, requests: d.requests.length,
+    oyakata: d.oyakata.length, staff: d.staff.length, sites: d.sites.length };
+  const isNow = S.month === thisMonth();
+  $('root').innerHTML =
+    '<div class="top"><div class="brand">' + esc(d.company) + '<small>作業実績 管理画面（見るだけ）</small></div>' +
+    '<div class="month"><button id="prev" aria-label="前の月">◀</button><b>' + ym(S.month) + '</b><button id="next" aria-label="次の月">▶</button>' +
+    (isNow ? '' : '<button id="now">今月</button>') + '</div>' +
+    '<div class="right"><button id="reload" title="最新の内容を読み込む">更新</button>' +
+    '<a href="' + esc(d.sheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く</a></div></div>' +
+    '<div class="layout"><nav aria-label="メニュー">' + VIEWS.map(v => v[0] === 'sep' ? '<div class="sep"></div>' :
+      '<a href="#' + v[0] + '" data-v="' + v[0] + '" class="' + (S.view === v[0] ? 'on' : '') + '"' + (S.view === v[0] ? ' aria-current="page"' : '') + '>' + v[1] +
+      (cnt[v[0]] !== undefined ? '<span class="cnt">' + cnt[v[0]] + '</span>' : '') + '</a>').join('') + '</nav>' +
+    '<main id="main"></main></div>';
+  $('prev').onclick = () => go(addMonth(S.month, -1));
+  $('next').onclick = () => go(addMonth(S.month, 1));
+  if ($('now')) $('now').onclick = () => go(thisMonth());
+  $('reload').onclick = () => load(true);
+  document.querySelectorAll('nav a').forEach(a => a.onclick = e => { e.preventDefault(); S.view = a.dataset.v; setHash(); render(); window.scrollTo(0, 0); });
+  setHash();
+  PAGES[S.view](d);
+}
+function go(m) { S.month = m; setHash(); load(false); }
+function setHash() { const h = '#' + S.view + '/' + S.month; if (location.hash !== h) history.replaceState(null, '', h); }
+
+/* ===== 表（並べ替え・絞り込み・合計・CSV） ===== */
+// cols: [{k, label, fmt(row)->html, csv(row)->text, num, sort(row)->value, cls}]
+function table(id, cols, rows, opt) {
+  opt = opt || {};
+  const st = S.sort[id] || opt.sort || null;
+  let list = rows.slice();
+  if (st) {
+    const c = cols.find(x => x.k === st.k);
+    if (c) {
+      const val = r => c.sort ? c.sort(r) : r[c.k];
+      list.sort((a, b) => { const x = val(a), y = val(b);
+        const r = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x === undefined ? '' : x).localeCompare(String(y === undefined ? '' : y), 'ja');
+        return st.desc ? -r : r; });
+    }
+  }
+  const head = '<tr>' + cols.map(c => '<th class="s' + (c.num ? ' num' : '') + '" data-k="' + c.k + '" scope="col">' + esc(c.label) +
+    (st && st.k === c.k ? '<span class="ar">' + (st.desc ? '▼' : '▲') + '</span>' : '') + '</th>').join('') + '</tr>';
+  const body = list.length ? list.map(r => '<tr>' + cols.map(c => '<td class="' + (c.num ? 'num' : '') + (c.cls ? ' ' + c.cls : '') + '">' +
+    (c.fmt ? c.fmt(r) : esc(r[c.k])) + '</td>').join('') + '</tr>').join('')
+    : '<tr><td colspan="' + cols.length + '" class="empty">' + esc(opt.empty || '該当するデータがありません') + '</td></tr>';
+  const foot = opt.total && list.length ? '<tfoot><tr>' + cols.map((c, i) => '<td class="' + (c.num ? 'num' : '') + '">' +
+    (i === 0 ? '合計 ' + list.length + '件' : (opt.total[c.k] ? opt.total[c.k](list) : '')) + '</td>').join('') + '</tr></tfoot>' : '';
+  const html = '<div class="tbl"><table id="t-' + id + '"><thead>' + head + '</thead><tbody>' + body + '</tbody>' + foot + '</table></div>';
+  setTimeout(() => {
+    const t = $('t-' + id); if (!t) return;
+    t.querySelectorAll('th.s').forEach(th => th.onclick = () => {
+      const k = th.dataset.k, cur = S.sort[id] || opt.sort;
+      S.sort[id] = { k, desc: cur && cur.k === k ? !cur.desc : false }; PAGES[S.view](S.data[S.month]);
+    });
+  });
+  TABLES[id] = { cols, rows: list };
+  return html;
+}
+const TABLES = {};
+function csv(id, name) {
+  const t = TABLES[id]; if (!t) return;
+  const strip = h => String(h).replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+  const cell = v => { const s = String(v === undefined || v === null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [t.cols.map(c => cell(c.label)).join(',')].concat(t.rows.map(r => t.cols.map(c =>
+    cell(c.csv ? c.csv(r) : (c.fmt ? strip(c.fmt(r)) : r[c.k]))).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name + '_' + S.month + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+// 絞り込みの部品
+function filterBar(id, parts) {
+  const f = S.f[id] || (S.f[id] = {});
+  return '<div class="bar">' + parts.map(p => {
+    if (p.type === 'search') return '<input type="search" data-f="' + p.k + '" placeholder="' + esc(p.ph || '検索') + '" value="' + esc(f[p.k] || '') + '" aria-label="' + esc(p.ph || '検索') + '">';
+    if (p.type === 'select') return '<select data-f="' + p.k + '" aria-label="' + esc(p.label) + '"><option value="">' + esc(p.label) + '：すべて</option>' +
+      p.options.map(o => { const v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o;
+        return '<option value="' + esc(v) + '"' + (f[p.k] === v ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select>';
+    return '';
+  }).join('') + '<span class="sp"></span><span class="info" id="info-' + id + '"></span><button data-csv="' + id + '">CSVで保存</button></div>';
+}
+function bindBar(id, name) {
+  const f = S.f[id] || {};
+  document.querySelectorAll('[data-f]').forEach(el => {
+    const ev = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(ev, () => {
+      f[el.dataset.f] = el.value;
+      const pos = el.selectionStart, k = el.dataset.f;
+      PAGES[S.view](S.data[S.month]);
+      const again = document.querySelector('[data-f="' + k + '"]');
+      if (again && again.tagName === 'INPUT') { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) {} }
+    });
+  });
+  const b = document.querySelector('[data-csv="' + id + '"]'); if (b) b.onclick = () => csv(id, name);
+}
+const textHit = (q, r, keys) => !q || keys.some(k => String(r[k] || '').toLowerCase().indexOf(q.toLowerCase()) >= 0);
+function put(html) { $('main').innerHTML = html; }
+
+/* ===== 各ページ ===== */
+const PAGES = {};
+
+PAGES.home = d => {
+  const w = d.works, ok = w.filter(r => r.status === '承認済' || r.status === '請求済');
+  const wait = w.filter(r => r.status === '登録済'), ng = w.filter(r => r.status === '差戻');
+  const subm = d.invoices.filter(r => r.status !== '取消');
+  const appl = d.oyakata.filter(o => o.status === '申請中');
+  const open = d.requests.filter(q => q.status === '募集中');
+  const raised = open.filter(q => q.answers.some(a => a.status === '手挙げ'));
+  const hours = sum(d.reports, 'hours');
+  const isNow = S.month === thisMonth();
+  const emp = d.staff.filter(s => s.role === '従業員' && s.status === '有効');
+  const noToday = isNow ? emp.filter(s => !d.reports.some(r => r.staffId === s.id && r.date === d.today)) : [];
+  const tile = (k, v, s, cls, href) => '<div class="tile ' + (cls || '') + '">' + (href ? '<a href="#' + href + '" data-go="' + href + '">' : '') +
+    '<div class="k">' + k + '</div><div class="v">' + v + '</div>' + (s ? '<div class="s">' + s + '</div>' : '') + (href ? '</a>' : '') + '</div>';
+
+  // 親方別
+  const byOy = uniq(w.map(r => r.oyakataId)).map(id => {
+    const rs = w.filter(r => r.oyakataId === id), inv = subm.filter(v => v.oyakataId === id);
+    return { id, name: rs[0].name, n: rs.length, ok: sum(rs.filter(r => r.status === '承認済' || r.status === '請求済'), 'amount'),
+      wait: rs.filter(r => r.status === '登録済').length, ng: rs.filter(r => r.status === '差戻').length,
+      inv: sum(inv, 'total'), invN: inv.length };
+  });
+  const bySite = uniq(w.map(r => r.siteId)).map(id => {
+    const rs = w.filter(r => r.siteId === id), rp = d.reports.filter(r => r.siteId === id);
+    return { id, name: rs[0].siteName, n: rs.length, oy: uniq(rs.map(r => r.oyakataId)).length,
+      amount: sum(rs.filter(r => r.status !== '差戻'), 'amount'), wait: rs.filter(r => r.status === '登録済').length, rh: sum(rp, 'hours') };
+  });
+
+  put('<h1>' + ym(S.month) + 'の概要</h1><p class="lead">一人親方の作業実績・請求書、職員の日報、応援依頼をまとめて見られます。修正はLINEのアプリかスプレッドシートで行います。</p>' +
+    '<div class="tiles">' +
+      tile('作業実績', w.length + '件', '承認済の金額 ' + yen(sum(ok, 'amount')), '', 'works') +
+      tile('承認待ち', wait.length + '件', wait.length ? '責任者の承認が必要です' : 'ありません', wait.length ? 'warn' : '', 'works') +
+      tile('差し戻し', ng.length + '件', ng.length ? '親方の登録し直し待ち' : 'ありません', ng.length ? 'ng' : '', 'works') +
+      tile('請求書', subm.length + '通', '合計 ' + yen(sum(subm, 'total')), '', 'invoices') +
+      tile('日報', d.reports.length + '件', '合計 ' + n1(hours) + '時間', '', 'reports') +
+      tile('募集中の依頼', open.length + '件', raised.length ? '手挙げあり ' + raised.length + '件' : '手挙げ待ち', raised.length ? 'warn' : '', 'requests') +
+      tile('登録申請中の親方', appl.length + '人', appl.length ? 'LINEアプリの「管理」で有効にします' : 'ありません', appl.length ? 'warn' : '', 'oyakata') +
+    '</div>' +
+    (isNow && emp.length ? '<h2>今日（' + md(d.today) + '）の日報がまだの従業員</h2><div class="note">' +
+      (noToday.length ? '<div class="chips">' + noToday.map(s => '<span class="badge b-warn">' + esc(s.name) + '</span>').join('') + '</div><p class="muted" style="margin:8px 0 0">休みの人も含まれます。</p>' : '全員提出済みです。') + '</div>' : '') +
+    '<div class="grid2"><div><h2>一人親方ごと</h2>' + table('home-oy', [
+      { k: 'name', label: '氏名' }, { k: 'n', label: '件数', num: true },
+      { k: 'ok', label: '承認済の金額', num: true, fmt: r => yen(r.ok) },
+      { k: 'wait', label: '承認待ち', num: true, fmt: r => r.wait ? '<span class="badge b-warn">' + r.wait + '</span>' : '0' },
+      { k: 'ng', label: '差戻', num: true, fmt: r => r.ng ? '<span class="badge b-ng">' + r.ng + '</span>' : '0' },
+      { k: 'inv', label: '請求額', num: true, fmt: r => r.invN ? yen(r.inv) : '<span class="muted">未提出</span>', csv: r => r.invN ? r.inv : '' },
+    ], byOy, { sort: { k: 'ok', desc: true }, empty: 'この月の作業実績はありません',
+      total: { n: l => sum(l, 'n'), ok: l => yen(sum(l, 'ok')), wait: l => sum(l, 'wait'), ng: l => sum(l, 'ng'), inv: l => yen(sum(l, 'inv')) } }) + '</div>' +
+    '<div><h2>現場ごと</h2>' + table('home-site', [
+      { k: 'name', label: '現場', cls: 'wrap' }, { k: 'oy', label: '親方', num: true, fmt: r => r.oy + '人' },
+      { k: 'n', label: '実績', num: true }, { k: 'amount', label: '金額（差戻除く）', num: true, fmt: r => yen(r.amount) },
+      { k: 'rh', label: '日報の時間', num: true, fmt: r => r.rh ? n1(r.rh) + 'h' : '' },
+    ], bySite, { sort: { k: 'amount', desc: true }, empty: 'この月の作業実績はありません',
+      total: { n: l => sum(l, 'n'), amount: l => yen(sum(l, 'amount')), rh: l => n1(sum(l, 'rh')) + 'h' } }) + '</div></div>');
+  document.querySelectorAll('[data-go]').forEach(a => a.onclick = e => { e.preventDefault(); S.view = a.dataset.go; render(); });
+};
+
+PAGES.works = d => {
+  const f = S.f.works || {};
+  const rows = d.works.filter(r => (!f.status || r.status === f.status) && (!f.oy || r.oyakataId === f.oy) && (!f.site || r.siteId === f.site) &&
+    (!f.kind || r.kind === f.kind) && textHit(f.q, r, ['name', 'siteName', 'content', 'reason', 'approver', 'id']));
+  put('<h1>作業実績</h1><p class="lead">' + ym(S.month) + 'に作業した分（取り消したものは除く）。列の見出しを押すと並べ替えできます。</p>' +
+    filterBar('works', [
+      { type: 'search', k: 'q', ph: '氏名・現場・内容で検索' },
+      { type: 'select', k: 'status', label: '状態', options: ['登録済', '承認済', '差戻', '請求済'] },
+      { type: 'select', k: 'oy', label: '親方', options: uniq(d.works.map(r => r.oyakataId)).map(id => [id, d.works.find(r => r.oyakataId === id).name]) },
+      { type: 'select', k: 'site', label: '現場', options: uniq(d.works.map(r => r.siteId)).map(id => [id, d.works.find(r => r.siteId === id).siteName]) },
+      { type: 'select', k: 'kind', label: '種類', options: uniq(d.works.map(r => r.kind)) },
+    ]) +
+    table('works', [
+      { k: 'date', label: '作業日', fmt: r => md(r.date), csv: r => r.date, cls: 'nw' },
+      { k: 'name', label: '親方', cls: 'nw' }, { k: 'siteName', label: '現場', cls: 'wrap' },
+      { k: 'kind', label: '種類', cls: 'nw' }, { k: 'unit', label: '作業量', cls: 'nw', fmt: r => esc(r.unit) + (r.hours ? '（' + r.hours + '時間）' : '') },
+      { k: 'amount', label: '金額', num: true, fmt: r => yen(r.amount), csv: r => r.amount },
+      { k: 'status', label: '状態', fmt: r => badge(r.status) + (r.reason ? '<div class="muted">' + esc(r.reason) + '</div>' : ''), csv: r => r.status + (r.reason ? '（' + r.reason + '）' : '') },
+      { k: 'approver', label: '承認者', cls: 'nw', fmt: r => esc(r.approver) + (r.approvedAt ? '<div class="muted">' + esc(r.approvedAt.slice(5, 16)) + '</div>' : ''), csv: r => r.approver },
+      { k: 'invoiceId', label: '請求書', cls: 'nw' }, { k: 'content', label: '作業内容', cls: 'wrap' },
+    ], rows, { sort: { k: 'date' }, total: { amount: l => yen(sum(l, 'amount')) } }));
+  bindBar('works', '作業実績');
+};
+
+PAGES.invoices = d => {
+  const f = S.f.invoices || {};
+  const rows = d.invoices.filter(r => (!f.status || r.status === f.status) && textHit(f.q, r, ['name', 'id']));
+  // 請求できる実績があるのに未提出の親方
+  const unbilled = uniq(d.works.filter(w => w.status === '承認済').map(w => w.oyakataId)).map(id => {
+    const ws = d.works.filter(w => w.oyakataId === id && w.status === '承認済');
+    return { name: ws[0].name, n: ws.length, amount: sum(ws, 'amount') };
+  });
+  put('<h1>請求書</h1><p class="lead">対象月が' + ym(S.month) + 'の請求書。「PDF」から提出された請求書を開けます。</p>' +
+    filterBar('invoices', [{ type: 'search', k: 'q', ph: '氏名・請求書番号で検索' },
+      { type: 'select', k: 'status', label: '状態', options: uniq(d.invoices.map(r => r.status)) }]) +
+    table('invoices', [
+      { k: 'id', label: '請求書番号', cls: 'nw' }, { k: 'name', label: '親方', cls: 'nw' },
+      { k: 'subtotal', label: '小計', num: true, fmt: r => yen(r.subtotal), csv: r => r.subtotal },
+      { k: 'tax', label: '消費税', num: true, fmt: r => yen(r.tax), csv: r => r.tax },
+      { k: 'total', label: '合計', num: true, fmt: r => '<b>' + yen(r.total) + '</b>', csv: r => r.total },
+      { k: 'regNo', label: '登録番号', cls: 'nw' }, { k: 'status', label: '状態', fmt: r => badge(r.status), csv: r => r.status },
+      { k: 'at', label: '提出日時', cls: 'nw' },
+      { k: 'pdf', label: 'PDF', fmt: r => r.pdf ? '<a href="' + esc(r.pdf) + '" target="_blank" rel="noopener">開く</a>' : '', csv: r => r.pdf },
+    ], rows, { sort: { k: 'at' }, empty: 'この月の請求書はまだありません',
+      total: { subtotal: l => yen(sum(l, 'subtotal')), tax: l => yen(sum(l, 'tax')), total: l => yen(sum(l, 'total')) } }) +
+    (unbilled.length ? '<h2>承認済みで、まだ請求書になっていない実績</h2>' + table('unbilled', [
+      { k: 'name', label: '親方' }, { k: 'n', label: '件数', num: true }, { k: 'amount', label: '金額（税抜）', num: true, fmt: r => yen(r.amount) },
+    ], unbilled, { sort: { k: 'amount', desc: true } }) : ''));
+  bindBar('invoices', '請求書');
+};
+
+PAGES.reports = d => {
+  const f = S.f.reports || {};
+  const rows = d.reports.filter(r => (!f.st || r.staffId === f.st) && (!f.site || r.siteId === f.site) &&
+    textHit(f.q, r, ['name', 'siteName', 'summary']));
+  const showCols = d.items.filter(l => d.reports.some(r => r.cols[l]));
+  const byStaff = uniq(rows.map(r => r.staffId)).map(id => { const rs = rows.filter(r => r.staffId === id);
+    return { name: rs[0].name, days: uniq(rs.map(r => r.date)).length, n: rs.length, hours: sum(rs, 'hours') }; });
+  put('<h1>日報</h1><p class="lead">' + ym(S.month) + 'に提出された日報（取り消したものは除く）。</p>' +
+    filterBar('reports', [{ type: 'search', k: 'q', ph: '氏名・現場・内容で検索' },
+      { type: 'select', k: 'st', label: '職員', options: uniq(d.reports.map(r => r.staffId)).map(id => [id, d.reports.find(r => r.staffId === id).name]) },
+      { type: 'select', k: 'site', label: '現場', options: uniq(d.reports.map(r => r.siteId)).map(id => [id, d.reports.find(r => r.siteId === id).siteName]) }]) +
+    table('reports', [
+      { k: 'date', label: '日付', fmt: r => md(r.date), csv: r => r.date, cls: 'nw' }, { k: 'name', label: '氏名', cls: 'nw' },
+      { k: 'siteName', label: '現場', cls: 'wrap' }, { k: 'start', label: '時間帯', cls: 'nw', fmt: r => r.start ? esc(r.start) + '〜' + esc(r.end) : '' },
+      { k: 'hours', label: '時間', num: true, fmt: r => r.hours === '' ? '' : n1(r.hours) },
+    ].concat(showCols.map(l => ({ k: 'c_' + l, label: l, cls: 'wrap', sort: r => r.cols[l] || '', fmt: r => esc(r.cols[l] || ''), csv: r => r.cols[l] || '' }))),
+    rows, { sort: { k: 'date' }, empty: 'この月の日報はありません', total: { hours: l => n1(sum(l, 'hours')) } }) +
+    (byStaff.length ? '<h2>職員ごとの集計</h2>' + table('rep-staff', [
+      { k: 'name', label: '氏名' }, { k: 'days', label: '出勤日数', num: true, fmt: r => r.days + '日' }, { k: 'n', label: '日報の件数', num: true },
+      { k: 'hours', label: '合計時間', num: true, fmt: r => n1(r.hours) + '時間' },
+    ], byStaff, { sort: { k: 'hours', desc: true } }) : ''));
+  bindBar('reports', '日報');
+};
+
+PAGES.requests = d => {
+  const f = S.f.requests || {};
+  const rate = q => q.kind === '請負' ? '請負 ' + yen(q.amount) : [['1日', q.rateDay], ['半日', q.rateHalf], ['1時間', q.rateHour]].filter(x => x[1]).map(x => x[0] + ' ' + yen(x[1])).join(' / ');
+  const ans = (q, s) => q.answers.filter(a => a.status === s);
+  const rows = d.requests.filter(q => (!f.status || q.status === f.status) && (!f.kind || q.kind === f.kind) && textHit(f.q, q, ['siteName', 'area', 'content', 'creator', 'id']));
+  put('<h1>応援依頼・請負依頼</h1><p class="lead">' + ym(S.month) + 'にかかる依頼と、その月に作った依頼。</p>' +
+    filterBar('requests', [{ type: 'search', k: 'q', ph: '現場・地域・内容で検索' },
+      { type: 'select', k: 'status', label: '状態', options: uniq(d.requests.map(q => q.status)) },
+      { type: 'select', k: 'kind', label: '種類', options: uniq(d.requests.map(q => q.kind)) }]) +
+    table('requests', [
+      { k: 'start', label: '期間', cls: 'nw', fmt: r => md(r.start) + (r.end && r.end !== r.start ? '〜' + md(r.end) : ''), csv: r => r.start + (r.end && r.end !== r.start ? '〜' + r.end : '') },
+      { k: 'kind', label: '種類' }, { k: 'siteName', label: '現場', cls: 'wrap', fmt: r => esc(r.siteName) + (r.area ? '<div class="muted">' + esc(r.area) + '</div>' : '') },
+      { k: 'rate', label: '単価', cls: 'nw', sort: r => r.rateDay || r.amount, fmt: r => esc(rate(r)), csv: r => rate(r) },
+      { k: 'people', label: '人数', num: true },
+      { k: 'status', label: '状態', fmt: r => badge(r.status), csv: r => r.status },
+      { k: 'conf', label: '確定', cls: 'wrap', sort: r => ans(r, '確定').length, fmt: r => esc(ans(r, '確定').map(a => a.name).join('、')), csv: r => ans(r, '確定').map(a => a.name).join('、') },
+      { k: 'hand', label: '手挙げ', cls: 'wrap', sort: r => ans(r, '手挙げ').length, fmt: r => ans(r, '手挙げ').length ? '<div class="chips">' + ans(r, '手挙げ').map(a => '<span class="badge b-blue">' + esc(a.name) + '</span>').join('') + '</div>' : '', csv: r => ans(r, '手挙げ').map(a => a.name).join('、') },
+      { k: 'wait', label: '未回答', num: true, sort: r => ans(r, '未回答').length, fmt: r => String(ans(r, '未回答').length) },
+      { k: 'content', label: '内容', cls: 'wrap' }, { k: 'creator', label: '作成者', cls: 'nw' },
+    ], rows, { sort: { k: 'start' }, empty: 'この月にかかる依頼はありません' }));
+  bindBar('requests', '依頼');
+};
+
+PAGES.oyakata = d => {
+  const f = S.f.oyakata || {};
+  const rows = d.oyakata.filter(o => (!f.status || o.status === f.status) && (!f.tag || o.tags.indexOf(f.tag) >= 0) &&
+    textHit(f.q, o, ['name', 'kana', 'trade', 'tel', 'address', 'id', 'regNo']));
+  put('<h1>一人親方</h1><p class="lead">登録されている一人親方の一覧。口座番号は下4けただけ表示しています（全部はスプレッドシートの「振込先」）。</p>' +
+    filterBar('oyakata', [{ type: 'search', k: 'q', ph: '氏名・屋号・電話で検索' },
+      { type: 'select', k: 'status', label: '状態', options: uniq(d.oyakata.map(o => o.status)) },
+      { type: 'select', k: 'tag', label: 'タグ', options: uniq([].concat.apply([], d.oyakata.map(o => o.tags))) }]) +
+    table('oyakata', [
+      { k: 'id', label: 'ID', cls: 'nw' }, { k: 'name', label: '氏名', cls: 'nw', fmt: r => esc(r.name) + (r.kana ? '<div class="muted">' + esc(r.kana) + '</div>' : ''), csv: r => r.name },
+      { k: 'kana', label: 'フリガナ', fmt: () => '', csv: r => r.kana }, { k: 'trade', label: '屋号' }, { k: 'tel', label: '電話', cls: 'nw' },
+      { k: 'address', label: '住所', cls: 'wrap', fmt: r => (r.zip ? '〒' + esc(r.zip) + ' ' : '') + esc(r.address) },
+      { k: 'regNo', label: 'インボイス登録番号', cls: 'nw' },
+      { k: 'bank', label: '振込先', cls: 'wrap', sort: r => r.bank ? r.bank.name : '', fmt: r => r.bank ? esc(r.bank.name + ' ' + r.bank.branch + ' ' + r.bank.type + ' ****' + r.bank.last4) + '<div class="muted">' + esc(r.bank.holder) + '</div>' : '<span class="muted">未登録</span>',
+        csv: r => r.bank ? r.bank.name + ' ' + r.bank.branch + ' ' + r.bank.type + ' ****' + r.bank.last4 + ' ' + r.bank.holder : '' },
+      { k: 'tags', label: 'タグ', sort: r => r.tags.join(), fmt: r => '<div class="chips">' + r.tags.map(t => '<span class="badge">' + esc(t) + '</span>').join('') + '</div>', csv: r => r.tags.join('、') },
+      { k: 'status', label: '状態', fmt: r => badge(r.status) + (r.linked ? '' : '<div class="muted">LINE未連携</div>'), csv: r => r.status },
+      { k: 'at', label: '登録日', cls: 'nw', fmt: r => esc(r.at.slice(0, 10)) },
+    ].filter(c => c.k !== 'kana'), rows, { sort: { k: 'id' } }));
+  bindBar('oyakata', '一人親方');
+};
+
+PAGES.staff = d => {
+  const f = S.f.staff || {};
+  const rows = d.staff.filter(s => (!f.role || s.role === f.role) && (!f.status || s.status === f.status) && textHit(f.q, s, ['name', 'id']));
+  put('<h1>職員</h1><p class="lead">責任者・事務・従業員の一覧。招待コードは、まだLINEで登録していない人（招待中）だけ表示しています。</p>' +
+    filterBar('staff', [{ type: 'search', k: 'q', ph: '氏名で検索' },
+      { type: 'select', k: 'role', label: '役割', options: uniq(d.staff.map(s => s.role)) },
+      { type: 'select', k: 'status', label: '状態', options: uniq(d.staff.map(s => s.status)) }]) +
+    table('staff', [
+      { k: 'id', label: 'ID', cls: 'nw' }, { k: 'name', label: '氏名' }, { k: 'role', label: '役割' },
+      { k: 'status', label: '状態', fmt: r => badge(r.status), csv: r => r.status },
+      { k: 'linked', label: 'LINE', fmt: r => r.linked ? '連携済み' : '<span class="muted">未連携</span>', csv: r => r.linked ? '連携済み' : '未連携' },
+      { k: 'code', label: '招待コード', fmt: r => r.code ? '<b style="letter-spacing:.1em">' + esc(r.code) + '</b>' : '' },
+      { k: 'sites', label: '担当現場（責任者）', cls: 'wrap', sort: r => 0,
+        fmt: r => esc(d.sites.filter(x => x.managers.indexOf(r.name) >= 0).map(x => x.short || x.name).join('、')),
+        csv: r => d.sites.filter(x => x.managers.indexOf(r.name) >= 0).map(x => x.short || x.name).join('、') },
+    ], rows, { sort: { k: 'id' } }));
+  bindBar('staff', '職員');
+};
+
+PAGES.sites = d => {
+  const f = S.f.sites || {};
+  const rows = d.sites.filter(s => (!f.status || s.status === f.status) && (!f.area || s.area === f.area) && textHit(f.q, s, ['name', 'short', 'address', 'id']));
+  put('<h1>現場</h1><p class="lead">現場マスタの一覧と、' + ym(S.month) + 'の実績・日報の件数。</p>' +
+    filterBar('sites', [{ type: 'search', k: 'q', ph: '現場名・住所で検索' },
+      { type: 'select', k: 'status', label: '状態', options: uniq(d.sites.map(s => s.status)) },
+      { type: 'select', k: 'area', label: '地域', options: uniq(d.sites.map(s => s.area)) }]) +
+    table('sites', [
+      { k: 'id', label: 'ID', cls: 'nw' }, { k: 'name', label: '現場名', cls: 'wrap', fmt: r => esc(r.name) + (r.short && r.short !== r.name ? '<div class="muted">' + esc(r.short) + '</div>' : ''), csv: r => r.name },
+      { k: 'area', label: '地域', fmt: r => r.area ? esc(r.area) : '<span class="muted">未設定</span>', csv: r => r.area },
+      { k: 'address', label: '住所', cls: 'wrap' },
+      { k: 'managers', label: '責任者', sort: r => r.managers.join(), fmt: r => esc(r.managers.join('、')), csv: r => r.managers.join('、') },
+      { k: 'status', label: '状態', fmt: r => badge(r.status), csv: r => r.status },
+      { k: 'w', label: '今月の実績', num: true, sort: r => d.works.filter(w => w.siteId === r.id).length, fmt: r => String(d.works.filter(w => w.siteId === r.id).length) },
+      { k: 'rp', label: '今月の日報', num: true, sort: r => d.reports.filter(w => w.siteId === r.id).length, fmt: r => String(d.reports.filter(w => w.siteId === r.id).length) },
+    ], rows, { sort: { k: 'id' } }));
+  bindBar('sites', '現場');
+};
+
+/* ===== LINEのSDKを読み込んでから開始 ===== */
+(function () {
+  if (window.liff) { start(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+  s.onload = start;
+  s.onerror = () => screen('<h1>読み込めませんでした</h1><p>LINEの部品を読み込めませんでした。通信を確認して、もう一度開いてください。</p><button onclick="location.reload()">もう一度</button>');
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
