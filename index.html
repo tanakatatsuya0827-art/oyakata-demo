@@ -285,6 +285,7 @@ function prefetchAll() {
     }
     if (me.staff && me.staff.role !== '従業員') { prefetch('pending', 'pending', {}); prefetch('sreq:open', 'listRequests', { filter: 'open' }); }
     if (me.staff) prefetch('rlist:' + thisMonth(), 'listReports', { month: thisMonth() });
+    if (me.staff && me.staff.role === '事務') prefetch('admin:' + addMonth(thisMonth(), -1), 'adminSummary', { month: addMonth(thisMonth(), -1) });
   }, 1500);
 }
 
@@ -301,6 +302,7 @@ function firstReq(page, p) {
     case 'sreq': { const f = p.filter || (S.sreq && S.sreq.filter) || 'open'; return { key: 'sreq:' + f, action: 'listRequests', params: { filter: f } }; }
     case 'report': return { key: 'rform', action: 'reportForm', params: {} };
     case 'rlist': { const m = mon('report', thisMonth()); return { key: 'rlist:' + m, action: 'listReports', params: { month: m } }; }
+    case 'admin': { const m = mon('admin', addMonth(thisMonth(), -1)); return { key: 'admin:' + m, action: 'adminSummary', params: { month: m } }; }
   }
   return null;
 }
@@ -447,11 +449,11 @@ function showPersonas() {
 }
 
 /* 開いたときの読み込み。2回目以降は前回の内容ですぐ画面を出し、裏で最新に差し替える */
-/* 前に見た一覧（実績・請求書・依頼・承認・依頼管理・日報の一覧）を端末に残し、次に開いたときすぐ出す。
+/* 前に見た一覧（実績・請求書・依頼・承認・依頼管理・日報の一覧・管理）を端末に残し、次に開いたときすぐ出す。
    最新は裏で取りに行って差し替える。住所・電話・口座・請求書の本文（html）は残さない */
-const VIEW_DROP = ['html', 'address', 'tel', 'phone', 'bank', 'bankName', 'branch', 'accountType', 'accountNo', 'accountHolder'];
+const VIEW_DROP = ['html', 'address', 'tel', 'phone', 'bank', 'bankName', 'branch', 'accountType', 'accountNo', 'accountHolder', 'pdf', 'sheetUrl'];
 function viewKeys() { // 次に開いたとき最初に使う場所（今月・先月）だけ
-  return ['list:' + thisMonth(), 'inv:' + addMonth(thisMonth(), -1), 'myreq', 'pending', 'sreq:open', 'rlist:' + thisMonth()];
+  return ['list:' + thisMonth(), 'inv:' + addMonth(thisMonth(), -1), 'myreq', 'pending', 'sreq:open', 'rlist:' + thisMonth(), 'admin:' + addMonth(thisMonth(), -1)];
 }
 function slimView(v) { return JSON.parse(JSON.stringify(v, (k, x) => VIEW_DROP.indexOf(k) >= 0 ? undefined : x)); }
 let viewSaveT = null;
@@ -1424,13 +1426,13 @@ function drawAdmin(d, nav) {
     '<div class="card"><table><tr><td>未承認</td><td class="r"><b>' + c.registered + '件</b></td></tr><tr><td>承認済（請求前）</td><td class="r">' + c.approved + '件</td></tr>' +
     '<tr><td>差戻</td><td class="r">' + c.rejected + '件</td></tr><tr><td>請求済</td><td class="r">' + c.billed + '件</td></tr></table></div>' +
     '<h3>登録申請中の一人親方</h3><div class="card">' + (d.applicants.length ? d.applicants.map(a =>
-      '<div class="item between"><div><b>' + esc(a.name) + '</b>' + (a.trade ? '（' + esc(a.trade) + '）' : '') + '<div class="muted">' + esc(a.tel) + '・' + esc(a.at) + '</div></div>' +
+      '<div class="item between"><div><b>' + esc(a.name) + '</b>' + (a.trade ? '（' + esc(a.trade) + '）' : '') + '<div class="muted">' + (a.tel ? esc(a.tel) + '・' : '') + esc(a.at) + '</div></div>' +
       '<button class="chip" data-act="' + esc(a.id) + '">有効にする</button></div>').join('') : '<p class="muted">ありません。</p>') + '</div>' +
     '<h3>' + jpMonth(nav.m) + '分の請求書</h3><div class="card">' + (d.invoices.length ? d.invoices.map(i =>
       '<div class="item"><div class="between"><b>' + esc(i.name) + '</b><span class="badge b-' + esc(i.status) + '">' + esc(i.status) + '</span></div>' +
       '<div class="between"><span class="muted">' + esc(i.id) + '</span><b>' + esc(yen(i.total)) + '</b></div>' +
       (i.pdf ? (window.DEMO_HOOKS && String(i.pdf).indexOf('demo:') === 0 ? '<button class="chip" data-pdf="' + esc(i.pdf) + '">PDFを開く</button>' : '<a class="btn chip" target="_blank" rel="noopener" href="' + esc(i.pdf) + '">PDFを開く</a>') : '') + '</div>').join('') : '<p class="muted">まだ提出はありません。</p>') + '</div>' +
-    (window.DEMO_HOOKS ? '<button style="width:100%" id="sheetView">スプレッドシートの中身を見る</button>' : '<a class="btn" style="width:100%" target="_blank" rel="noopener" href="' + esc(d.sheetUrl) + '">スプレッドシートを開く</a>') +
+    (window.DEMO_HOOKS ? '<button style="width:100%" id="sheetView">スプレッドシートの中身を見る</button>' : (d.sheetUrl ? '<a class="btn" style="width:100%" target="_blank" rel="noopener" href="' + esc(d.sheetUrl) + '">スプレッドシートを開く</a>' : '')) +
     '<p class="muted">現場（地域・住所）・親方のタグ・職員の招待コードはスプレッドシートで管理します。</p>';
   $('app').innerHTML = h;
   nav.bind();
