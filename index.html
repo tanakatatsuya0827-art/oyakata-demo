@@ -132,7 +132,7 @@ const CONFIG = {
 const S = { mode: '', idToken: '', demoUser: '', cacheKey: '', touched: false, me: null, tab: '', acting: false, view: '', data: {}, sites: null,
   form: null, month: {}, inv: null, showInv: false, profile: null,
   app: { name: '', company: '' }, report: null, rform: null, rmode: 'input', badges: {},
-  fresh: {}, viewSeq: 0, bootWait: null };
+  fresh: {}, stale: {}, viewSeq: 0, bootWait: null };
 
 const DEMO_PERSONAS = [
   { id: 'DEMO-OY001', name: '山田 太郎', desc: '一人親方（登録番号あり・いろいろな現場に行く）' },
@@ -217,7 +217,7 @@ async function api(action, params) {
     ? new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).api(body))
     : postHedged(body, safe ? [0, 4000, 10000] : [0, 12000, 25000], safe ? 25000 : 50000)
       .catch(() => { throw new Error(safe ? NET_ERR : '通信が途切れました。登録できたかどうか、画面を開き直して確かめてください。'); });
-  return p.then(r => { if (!r || !r.ok) throw new Error((r && r.error) || '通信に失敗しました'); return r.data; });
+  return p.then(r => { if (!r || !r.ok) throw new Error((r && r.error) || '通信に失敗しました'); saveViews(); return r.data; });
 }
 // 書き込み系の操作（登録・承認など）。終わるまで同じ操作の二重押しを受け付けない
 async function act(fn) {
@@ -248,7 +248,7 @@ async function view(key, action, params, draw) {
     }
     const d = await api(action, params);
     const same = hit && JSON.stringify(hit) === JSON.stringify(d);
-    S.data[key] = d;
+    S.data[key] = d; delete S.stale[key];
     if (S.view === key && !same && !S.touched && !S.acting && !document.querySelector('.modal')) draw(d);
   } catch (e) {
     if (S.view === key) {
@@ -265,8 +265,8 @@ async function view(key, action, params, draw) {
 let PREFETCH_Q = Promise.resolve();
 function prefetch(key, action, params) {
   PREFETCH_Q = PREFETCH_Q.then(() => {
-    if (S.data[key]) return;
-    return api(action, params).then(d => { if (!S.data[key]) S.data[key] = d; }).catch(() => {});
+    if (S.data[key] && !S.stale[key]) return;
+    return api(action, params).then(d => { if (!S.data[key] || S.stale[key]) { S.data[key] = d; delete S.stale[key]; } }).catch(() => {});
   });
 }
 function prefetchAll() {
@@ -315,7 +315,7 @@ function applyBootFirst(d) {
   if (d.report) { S.data.rform = d.report; S.fresh.rform = now; }
   if (d.first && d.first.data) {
     const f = firstReq(d.first.page, d.first.params);
-    if (f) { S.data[f.key] = d.first.data; S.fresh[f.key] = now; }
+    if (f) { S.data[f.key] = d.first.data; S.fresh[f.key] = now; delete S.stale[f.key]; }
   }
 }
 function takeFresh(key) {
@@ -355,7 +355,7 @@ async function boot() {
     if (early) mark('ready'); // 画面は出ていて、本人確認も済んだ（書き込みを送れる）
     const tab = pageParam(); if (tab && tab !== S.tab && !early) S.tab = tab;
     // 先に出した内容が別のLINEアカウントのものだったら、出し直す
-    if (early && early !== S.cacheKey) { S.me = null; S.sites = null; S.data = {}; S.fresh = {}; S.badges = {}; S.report = null; early = ''; }
+    if (early && early !== S.cacheKey) { S.me = null; S.sites = null; S.data = {}; S.fresh = {}; S.stale = {}; S.badges = {}; S.report = null; early = ''; }
     if (early) { refreshInBackground(S.shownJson).then(prefetchAll); return; } // 先読みは boot の返事のあと（同時に走らせない）
     return start();
   }
@@ -432,6 +432,32 @@ function showPersonas() {
 }
 
 /* 開いたときの読み込み。2回目以降は前回の内容ですぐ画面を出し、裏で最新に差し替える */
+/* 前に見た一覧（実績・請求書・依頼・承認・依頼管理・日報の一覧）を端末に残し、次に開いたときすぐ出す。
+   最新は裏で取りに行って差し替える。住所・電話・口座・請求書の本文（html）は残さない */
+const VIEW_DROP = ['html', 'address', 'tel', 'phone', 'bank', 'bankName', 'branch', 'accountType', 'accountNo', 'accountHolder'];
+function viewKeys() { // 次に開いたとき最初に使う場所（今月・先月）だけ
+  return ['list:' + thisMonth(), 'inv:' + addMonth(thisMonth(), -1), 'myreq', 'pending', 'sreq:open', 'rlist:' + thisMonth()];
+}
+function slimView(v) { return JSON.parse(JSON.stringify(v, (k, x) => VIEW_DROP.indexOf(k) >= 0 ? undefined : x)); }
+let viewSaveT = null;
+function saveViews() {
+  if (!S.cacheKey || S.demoUser) return;
+  clearTimeout(viewSaveT);
+  viewSaveT = setTimeout(() => {
+    if (!S.cacheKey) return;
+    const o = {};
+    viewKeys().forEach(k => { if (S.data[k]) o[k] = slimView(S.data[k]); });
+    try { const j = JSON.stringify(o); if (j.length < 200000) localStorage.setItem(S.cacheKey + ':v', j); } catch (e) { /* 保存できなくても動く */ }
+  }, 800);
+}
+function loadViews() {
+  if (!S.cacheKey) return;
+  try {
+    const o = JSON.parse(localStorage.getItem(S.cacheKey + ':v') || 'null');
+    if (o) viewKeys().forEach(k => { if (o[k] && !S.data[k]) { S.data[k] = o[k]; S.stale[k] = 1; } }); // 古いかもしれない印（先読みで取り直す）
+  } catch (e) { /* 読めなければ普通に開く */ }
+}
+
 function cacheGet() {
   if (!S.cacheKey) return null;
   try { const v = JSON.parse(localStorage.getItem(S.cacheKey) || 'null'); return v && v.me ? v : null; } catch (e) { return null; }
@@ -452,6 +478,7 @@ async function start(early) {
   const cached = cacheGet();
   if (cached) {
     S.me = cached.me; S.sites = cached.sites; S.badges = cached.badges || {}; setApp(cached.app); if (cached.report) S.report = cached.report;
+    loadViews();
     render();
     S.shownJson = JSON.stringify(cached);
     if (early) return; // 本人確認が終わったら boot() が続きをする
@@ -987,7 +1014,7 @@ function drawInvoice(d, nav) {
   }
   $('app').innerHTML = h;
   nav.bind();
-  document.querySelectorAll('iframe[data-frame]').forEach(f => { const k = f.dataset.frame; f.srcdoc = k === 'new' ? d.html : invs[Number(k)].html; });
+  document.querySelectorAll('iframe[data-frame]').forEach(f => { const k = f.dataset.frame; f.srcdoc = (k === 'new' ? d.html : invs[Number(k)].html) || '<p style="font-family:sans-serif;color:#888">読み込み中…</p>'; });
   document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { S.showInv = S.showInv === b.dataset.view ? false : b.dataset.view; drawInvoice(S.data[key] || d, nav); });
   if ($('submit')) $('submit').onclick = () => {
     modal('<p style="margin-top:0"><b>' + esc(jpMonth(nav.m)) + '分 ' + esc(yen(d.total)) + '</b> の' + (invs.length ? '追加の' : '') + '請求書を提出します。提出後は変更できません。よろしいですか？</p>' +
