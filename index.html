@@ -205,11 +205,17 @@ function postHedged(body, starts, each) {
   });
 }
 const newOpId = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-async function api(action, params) {
-  if (S.mode === 'liff' && !S.idToken && S.tokenReady) await S.tokenReady; // 先に画面を出したときは、LINEの本人確認が終わってから送る
+async function api(action, params, earlyToken) {
+  // 先に画面を出したときは、LINEの本人確認が終わってから送る。
+  // ただし boot だけは、前回の本人確認トークンがまだ有効なら先に送ってよい（読むだけ。サーバーは毎回トークンを確かめる）
+  const early = action === 'boot' && !!earlyToken && !S.idToken;
+  if (S.mode === 'liff' && !S.idToken && S.tokenReady && !early) await S.tokenReady;
   const body = Object.assign({ action }, params || {});
-  if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = S.idToken;
+  if (S.demoUser) body.demoUser = S.demoUser; else body.idToken = early ? earlyToken : S.idToken;
   if (action === 'boot' && S.perf && !S.perfSent) { body.perf = S.perf; S.perfSent = true; } // 開くまでの時間（調査用）
+  else if (action !== 'boot' && S.perf && S.perf.boot && !S.perf2Sent) { // boot の後の最初の問い合わせで、開くまでの全体を送る（GAS の showPerf で見る）
+    body.perf2 = Object.assign({}, S.perf, { ready: S.perfReady || null, eb: S.earlyBoot ? 1 : 0, tab: curPage() }); S.perf2Sent = true;
+  }
   const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary'].indexOf(action) >= 0;
   // 書き込み系は操作ごとの番号をつけて送る。同じ番号が届いてもサーバーは1回しか処理しない（二重登録にならない）
   if (!safe) body.opId = newOpId();
@@ -342,6 +348,12 @@ async function boot() {
     let releaseToken;
     S.tokenReady = new Promise(r => { releaseToken = r; });
     if (early) { S.cacheKey = early; if (cacheGet()) { start(true); mark('shown'); } else early = ''; }
+    // ①' 前回の本人確認トークンがまだ使えるなら、LINEの準備を待たずに最新を取りに行く（読むだけ）
+    let earlyRefresh = null;
+    if (early) {
+      const tok = savedToken(early);
+      if (tok) { S.earlyBoot = true; earlyRefresh = refreshInBackground(S.shownJson, tok); }
+    }
     // ② LINEの本人確認（裏で進める）
     try {
       await loadScript('https://static.line-scdn.net/liff/edge/2/sdk.js'); mark('sdk');
@@ -349,14 +361,17 @@ async function boot() {
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
       S.idToken = liff.getIDToken();
       if (!S.idToken) return fatal('LINEの本人確認ができませんでした。LIFFの設定で「openid」を有効にしてください。');
-      try { const t = liff.getDecodedIDToken(); if (t && t.sub) S.cacheKey = 'oyakata-boot:' + t.sub; } catch (e) { S.cacheKey = ''; }
+      try { const t = liff.getDecodedIDToken(); if (t && t.sub) { S.cacheKey = 'oyakata-boot:' + t.sub; saveToken(S.cacheKey, S.idToken, t.exp); } } catch (e) { S.cacheKey = ''; }
     } catch (e) { return fatal('LINEとの接続に失敗しました：' + e.message); }
     releaseToken();
     if (early) mark('ready'); // 画面は出ていて、本人確認も済んだ（書き込みを送れる）
     const tab = pageParam(); if (tab && tab !== S.tab && !early) S.tab = tab;
     // 先に出した内容が別のLINEアカウントのものだったら、出し直す
     if (early && early !== S.cacheKey) { S.me = null; S.sites = null; S.data = {}; S.fresh = {}; S.stale = {}; S.badges = {}; S.report = null; early = ''; }
-    if (early) { refreshInBackground(S.shownJson).then(prefetchAll); return; } // 先読みは boot の返事のあと（同時に走らせない）
+    if (early) { // 先読みは boot の返事のあと（同時に走らせない）
+      (earlyRefresh || Promise.resolve(false)).then(ok => ok ? true : refreshInBackground(S.shownJson)).then(prefetchAll);
+      return;
+    }
     return start();
   }
   showPersonas();
@@ -458,6 +473,20 @@ function loadViews() {
   } catch (e) { /* 読めなければ普通に開く */ }
 }
 
+/* LINEの本人確認トークン（IDトークン）を、期限までのあいだ端末に覚える。次に開いたとき、LINEの準備と同時に
+   boot（読むだけ）を送るために使う。書き込みは今まで通り、その回のLINEの本人確認が終わってから送る */
+function saveToken(key, tok, exp) {
+  try { if (key && tok && exp) localStorage.setItem(key + ':t', JSON.stringify({ t: tok, exp: exp })); } catch (e) { /* 覚えられなくても動く */ }
+}
+function savedToken(key) {
+  try {
+    const o = JSON.parse(localStorage.getItem(key + ':t') || 'null');
+    if (o && o.t && Number(o.exp) * 1000 - Date.now() > 120000) return o.t; // 期限まで2分以上あるときだけ
+    if (o) localStorage.removeItem(key + ':t');
+  } catch (e) { /* 読めなければ使わない */ }
+  return '';
+}
+
 function cacheGet() {
   if (!S.cacheKey) return null;
   try { const v = JSON.parse(localStorage.getItem(S.cacheKey) || 'null'); return v && v.me ? v : null; } catch (e) { return null; }
@@ -499,20 +528,24 @@ function setApp(app) {
   S.app = app;
   if (app.name) { $('appName').textContent = app.name; document.title = app.name; }
 }
-async function refreshInBackground(before) {
+async function refreshInBackground(before, earlyToken) {
   S.refreshing = true;
+  const key = S.cacheKey;
   try {
-    const d = await api('boot', bootParams()); S.sitesAt = Date.now(); S.badgesAt = Date.now(); mark('boot');
+    const d = await api('boot', bootParams(), earlyToken);
+    if (S.cacheKey !== key) return false; // その間に別のLINEアカウントだと分かった → 使わない
+    S.sitesAt = Date.now(); S.badgesAt = Date.now(); mark('boot');
     applyBootFirst(d);
     const slim = cacheSet(d) || d;
-    if (JSON.stringify(slim) === before) return;
+    if (JSON.stringify(slim) === before) return true;
     S.me = d.me; setApp(d.app);
     if (d.badges && JSON.stringify(d.badges) !== JSON.stringify(S.badges)) { S.badges = d.badges; if ($('nav').innerHTML) drawNav(); }
     // 入力を始めていなければ、最新の内容で画面を描き直す
     if (!S.touched && !S.acting && !document.querySelector('.modal')) { S.sites = d.sites; S.form = null; if (d.report) { S.report = d.report; S.rform = null; } render(); }
     else { if (d.sites) S.sites = d.sites; if (d.report) S.report = d.report; }
-  } catch (e) { console.warn('refresh', e); }
-  finally { S.refreshing = false; releaseBoot(); }
+    return true;
+  } catch (e) { console.warn('refresh', e); return false; }
+  finally { S.refreshing = false; if (!earlyToken || S.cacheKey === key) releaseBoot(); }
 }
 document.addEventListener('input', () => { S.touched = true; }, true);
 document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('main')) S.touched = true; }, true);
