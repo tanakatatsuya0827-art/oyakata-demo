@@ -162,12 +162,10 @@ async function api(action, params) {
 }
 
 /* ===== 状態 ===== */
-// limited：責任者（月ごとのまとめは見られず、「シート」だけ見られる）
-const S = { idToken: '', month: thisMonth(), data: {}, view: 'home', f: {}, sort: {}, sheets: null, sheet: '', limited: false };
+const S = { idToken: '', month: thisMonth(), data: {}, view: 'home', f: {}, sort: {} };
 const VIEWS = [
   ['home', '概要'], ['works', '作業実績'], ['invoices', '請求書'], ['reports', '日報'], ['requests', '応援依頼'],
   ['sep'], ['oyakata', '一人親方'], ['staff', '職員'], ['sites', '現場'],
-  ['sep'], ['sheets', 'シート（全部）'],
 ];
 
 /* ===== 起動・ログイン ===== */
@@ -177,7 +175,7 @@ async function start() {
   try {
     await liff.init({ liffId: CONFIG.LIFF_ID });
     if (!liff.isLoggedIn()) {
-      screen('<h1>作業実績 管理画面</h1><p>事務・責任者の方が使う、見るための画面です。<br>LINEでログインしてください。</p><button id="login" style="padding:12px 24px;font-size:16px">LINEでログイン</button>');
+      screen('<h1>作業実績 管理画面</h1><p>事務の方が使う、見るための画面です。<br>LINEでログインしてください。</p><button id="login" style="padding:12px 24px;font-size:16px">LINEでログイン</button>');
       $('login').onclick = () => liff.login({ redirectUri: location.href.split('#')[0] });
       return;
     }
@@ -191,62 +189,41 @@ async function start() {
 function relogin() { try { liff.logout(); } catch (e) {} liff.login({ redirectUri: location.href.split('#')[0] }); }
 
 async function load(force) {
-  if (S.limited) return loadSheets(force);
   const key = S.month;
   if (!force && S.data[key]) { render(); return; }
   busy(true);
   try { S.data[key] = await api('adminData', { month: key }); render(); }
   catch (e) {
-    let msg = e.message || String(e);
-    // 事務でなければ、責任者として「シート」だけ見られるか確かめる
-    if (/事務員のみ/.test(msg)) {
-      try { S.sheets = await api('sheetData'); S.limited = true; S.view = 'sheets'; render(); return; }
-      catch (e2) { msg = e2.message || String(e2); }
-    }
+    const msg = e.message || String(e);
     if (/本人確認|ログイン/.test(msg)) screen('<h1>ログインし直してください</h1><p>' + esc(msg) + '</p><button id="re">LINEでログインし直す</button>');
-    else if (/事務員のみ|事務と責任者|職員として登録/.test(msg)) screen('<h1>この画面は事務・責任者の方だけが使えます</h1><p>' + esc(msg) + '<br>LINEアプリで招待コードを入力して、職員として登録してから開いてください。</p><button id="re">別のLINEアカウントでログイン</button>');
+    else if (/事務員のみ|職員として登録/.test(msg)) screen('<h1>この画面は事務の方だけが使えます</h1><p>' + esc(msg) + '<br>LINEアプリで招待コードを入力して、事務として登録してから開いてください。</p><button id="re">別のLINEアカウントでログイン</button>');
     else if (S.data[key]) { render(); alertBar(msg); }
     else screen('<h1>読み込めませんでした</h1><p>' + esc(msg) + '</p><button onclick="load(true)">もう一度読み込む</button>');
     if ($('re')) $('re').onclick = relogin;
-  } finally { busy(false); }
-}
-/* 全部のシート（事務と責任者）。月に関係なく1回読み込む。「更新」で読み直す */
-async function loadSheets(force) {
-  if (!force && S.sheets) { render(); return; }
-  busy(true);
-  try { S.sheets = await api('sheetData'); render(); }
-  catch (e) {
-    const msg = e.message || String(e);
-    if ($('main')) { put('<div class="note" style="border-color:var(--ng)">' + esc(msg) + '</div><button onclick="loadSheets(true)">もう一度読み込む</button>'); }
-    else screen('<h1>読み込めませんでした</h1><p>' + esc(msg) + '</p><button onclick="loadSheets(true)">もう一度読み込む</button>');
   } finally { busy(false); }
 }
 function alertBar(msg) { const m = document.querySelector('main'); if (m) m.insertAdjacentHTML('afterbegin', '<div class="note" style="border-color:var(--ng);margin-bottom:12px">' + esc(msg) + '</div>'); }
 
 /* ===== 画面の枠 ===== */
 function render() {
-  const d = S.limited ? null : S.data[S.month];
-  const cnt = d ? { works: d.works.length, invoices: d.invoices.length, reports: d.reports.length, requests: d.requests.length,
-    oyakata: d.oyakata.length, staff: d.staff.length, sites: d.sites.length } : {};
-  if (S.sheets) cnt.sheets = S.sheets.sheets.length;
+  const d = S.data[S.month];
+  const cnt = { works: d.works.length, invoices: d.invoices.length, reports: d.reports.length, requests: d.requests.length,
+    oyakata: d.oyakata.length, staff: d.staff.length, sites: d.sites.length };
   const isNow = S.month === thisMonth();
-  const monthNav = S.view !== 'sheets' && !S.limited;
-  const sheetUrl = d ? d.sheetUrl : (S.sheets && S.sheets.sheetUrl);
-  const views = S.limited ? VIEWS.filter(v => v[0] === 'sheets') : VIEWS;
   $('root').innerHTML =
-    '<div class="top"><div class="brand">' + esc(d ? d.company : (S.sheets ? S.sheets.company : '')) + '<small>作業実績 管理画面（見るだけ）</small></div>' +
-    (monthNav ? '<div class="month"><button id="prev" aria-label="前の月">◀</button><b>' + ym(S.month) + '</b><button id="next" aria-label="次の月">▶</button>' +
-    (isNow ? '' : '<button id="now">今月</button>') + '</div>' : '') +
+    '<div class="top"><div class="brand">' + esc(d.company) + '<small>作業実績 管理画面（見るだけ）</small></div>' +
+    '<div class="month"><button id="prev" aria-label="前の月">◀</button><b>' + ym(S.month) + '</b><button id="next" aria-label="次の月">▶</button>' +
+    (isNow ? '' : '<button id="now">今月</button>') + '</div>' +
     '<div class="right"><button id="reload" title="最新の内容を読み込む">更新</button>' +
-    (sheetUrl ? '<a href="' + esc(sheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く</a>' : '') + '</div></div>' +
-    '<div class="layout"><nav aria-label="メニュー">' + views.map(v => v[0] === 'sep' ? '<div class="sep"></div>' :
+    '<a href="' + esc(d.sheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く</a></div></div>' +
+    '<div class="layout"><nav aria-label="メニュー">' + VIEWS.map(v => v[0] === 'sep' ? '<div class="sep"></div>' :
       '<a href="#' + v[0] + '" data-v="' + v[0] + '" class="' + (S.view === v[0] ? 'on' : '') + '"' + (S.view === v[0] ? ' aria-current="page"' : '') + '>' + v[1] +
       (cnt[v[0]] !== undefined ? '<span class="cnt">' + cnt[v[0]] + '</span>' : '') + '</a>').join('') + '</nav>' +
     '<main id="main"></main></div>';
-  if ($('prev')) $('prev').onclick = () => go(addMonth(S.month, -1));
-  if ($('next')) $('next').onclick = () => go(addMonth(S.month, 1));
+  $('prev').onclick = () => go(addMonth(S.month, -1));
+  $('next').onclick = () => go(addMonth(S.month, 1));
   if ($('now')) $('now').onclick = () => go(thisMonth());
-  $('reload').onclick = () => S.view === 'sheets' ? loadSheets(true) : load(true);
+  $('reload').onclick = () => load(true);
   document.querySelectorAll('nav a').forEach(a => a.onclick = e => { e.preventDefault(); S.view = a.dataset.v; setHash(); render(); window.scrollTo(0, 0); });
   setHash();
   PAGES[S.view](d);
@@ -552,36 +529,6 @@ PAGES.sites = d => {
   s.onerror = () => screen('<h1>読み込めませんでした</h1><p>LINEの部品を読み込めませんでした。通信を確認して、もう一度開いてください。</p><button onclick="location.reload()">もう一度</button>');
   document.head.appendChild(s);
 })();
-
-/* ===== シート（全部）：スプレッドシートの表のまま。見るだけ ===== */
-const SHEET_SHOW_MAX = 2000; // 画面に出す行の上限（CSVには全部入る）
-PAGES.sheets = () => {
-  if (!S.sheets) { put('<p class="muted">読み込み中…</p>'); loadSheets(false); return; }
-  const all = S.sheets.sheets;
-  if (!all.length) { put('<p>シートがありません。</p>'); return; }
-  const sh = all.find(x => x.key === S.sheet) || all[0];
-  S.sheet = sh.key;
-  const id = 'sheet-' + sh.key;
-  const f = S.f[id] || (S.f[id] = {});
-  const q = String(f.q || '').toLowerCase();
-  const rows = sh.rows.map((r, i) => { const o = { _i: i + 2 }; r.forEach((v, c) => { o['c' + c] = v; }); return o; })
-    .filter(o => !q || sh.head.some((h, c) => String(o['c' + c]).toLowerCase().indexOf(q) >= 0));
-  const isNum = c => sh.rows.length > 0 && sh.rows.every(r => r[c] === '' || typeof r[c] === 'number');
-  const cols = [{ k: '_i', label: '行', num: true }].concat(sh.head.map((h, c) => ({ k: 'c' + c, label: h, num: isNum(c),
-    fmt: r => { const v = r['c' + c]; return typeof v === 'number' ? esc(v.toLocaleString('ja-JP')) : esc(v); }, csv: r => r['c' + c] })));
-  const shown = rows.slice(0, SHEET_SHOW_MAX);
-  put('<h1>シート（全部）</h1><p class="lead">スプレッドシートの中身を、そのまま見られます（見るだけ）。直すときはスプレッドシートで直してください。見出しを押すと並べ替えます。</p>' +
-    '<div class="bar" style="flex-wrap:wrap">' + all.map(x => '<button data-sheet="' + esc(x.key) + '"' + (x.key === sh.key ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') +
-      ' style="' + (x.key === sh.key ? 'font-weight:bold;border-color:var(--accent,#1e63c6)' : '') + '">' + esc(x.name) + '（' + x.rows.length + '）</button>').join('') + '</div>' +
-    filterBar(id, [{ type: 'search', k: 'q', ph: 'このシートの中を検索' }]) +
-    (sh.cut ? '<p class="note">新しい方から ' + sh.rows.length + ' 行だけ出しています（古い ' + sh.cut + ' 行はスプレッドシートで見てください）。</p>' : '') +
-    (rows.length > SHEET_SHOW_MAX ? '<p class="note">' + rows.length + ' 行のうち、先頭の ' + SHEET_SHOW_MAX + ' 行を出しています。検索で絞り込むか、CSVで保存してください。</p>' : '') +
-    table(id, cols, shown, { empty: q ? '検索に合う行がありません' : 'このシートは空です' }));
-  TABLES[id] = { cols: TABLES[id].cols, rows: rows }; // CSVには絞り込んだ全部の行
-  const info = $('info-' + id); if (info) info.textContent = rows.length + ' 行';
-  bindBar(id, sh.name);
-  document.querySelectorAll('[data-sheet]').forEach(b => b.onclick = () => { S.sheet = b.dataset.sheet; PAGES.sheets(); window.scrollTo(0, 0); });
-};
 </script>
 </body>
 </html>
