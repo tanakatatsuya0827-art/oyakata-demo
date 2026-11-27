@@ -1245,6 +1245,30 @@ function pageReport() {
 function bindReportHead() {
   document.querySelectorAll('[data-rmode]').forEach(b => b.onclick = () => { S.rmode = b.dataset.rmode; pageReport(); });
 }
+/* その日その現場に入る一人親方（依頼で確定した人）。日報では自動で出し、来なかった人だけ外す */
+function crewOn(d, siteId, date) {
+  const seen = {}, out = [];
+  (d.crew || []).filter(c => c.siteId === siteId && c.start <= date && date <= c.end)
+    .forEach(c => c.oyakata.forEach(o => { if (!seen[o.id]) { seen[o.id] = 1; out.push(o); } }));
+  return out;
+}
+function crewHtml(d, f) {
+  const list = f.siteId ? crewOn(d, f.siteId, f.date) : [];
+  if (!list.length) return '';
+  const off = f.crewOff || {};
+  return '<label>一人親方（依頼で確定した人・自動）</label><div class="chips">' +
+    list.map(o => '<button class="chip ' + (off[o.id] ? '' : 'on') + '" data-crew="' + esc(o.id) + '" aria-pressed="' + (off[o.id] ? 'false' : 'true') + '">' + (off[o.id] ? '' : '✓ ') + esc(o.name) + '</button>').join('') +
+    '</div><p class="help">来なかった人だけ押して外してください。</p>';
+}
+function bindCrew(f) {
+  document.querySelectorAll('[data-crew]').forEach(b => b.onclick = () => {
+    const off = f.crewOff || (f.crewOff = {}), id = b.dataset.crew;
+    if (off[id]) delete off[id]; else off[id] = 1;
+    const on = !off[id];
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.textContent = (on ? '✓ ' : '') + b.textContent.replace(/^✓ /, '');
+  });
+}
 function newReportForm(keep) {
   return { date: keep ? keep.date : today(), siteId: keep ? keep.siteId : '', answers: {}, hoursEdited: false, filter: '' };
 }
@@ -1275,7 +1299,8 @@ function drawReport() {
     (d.sites.length > 8 ? '<input id="rfilter" placeholder="現場名で絞り込み" value="' + esc(f.filter) + '"><div style="height:8px"></div>' : '') +
     '<select id="rsite"><option value="">現場を選んでください</option>' +
     (d.office ? '<option value="' + esc(d.office.id) + '"' + (f.siteId === d.office.id ? ' selected' : '') + '>' + esc(d.office.name) + '</option>' : '') +
-    filtered.map(s => '<option value="' + esc(s.id) + '"' + (f.siteId === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') + '</select>';
+    filtered.map(s => '<option value="' + esc(s.id) + '"' + (f.siteId === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') + '</select>' +
+    '<div id="rcrew">' + crewHtml(d, f) + '</div>';
   d.items.forEach((it, i) => {
     const v = a[it.id];
     h += '<label>' + esc(it.label) + req(it) + '</label>';
@@ -1312,7 +1337,8 @@ function drawReport() {
   document.querySelectorAll('[data-rdate]').forEach(b => b.onclick = () => { f.date = b.dataset.rdate; drawReport(); });
   $('rdate').onchange = (e) => { f.date = e.target.value; drawReport(); };
   document.querySelectorAll('[data-rsite]').forEach(b => b.onclick = () => { f.siteId = b.dataset.rsite; drawReport(); });
-  $('rsite').onchange = (e) => { f.siteId = e.target.value; document.querySelectorAll('[data-rsite]').forEach(x => x.classList.toggle('on', x.dataset.rsite === f.siteId)); };
+  $('rsite').onchange = (e) => { f.siteId = e.target.value; document.querySelectorAll('[data-rsite]').forEach(x => x.classList.toggle('on', x.dataset.rsite === f.siteId)); $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f); };
+  bindCrew(f);
   if ($('rfilter')) $('rfilter').oninput = (e) => { f.filter = e.target.value; const pos = e.target.selectionStart; drawReport(); $('rfilter').focus(); $('rfilter').setSelectionRange(pos, pos); };
   const item = (el) => d.items[Number(el.dataset.i)];
   // 選ぶ部品は画面を描き直さずに見た目だけ切り替える（スクロール位置がずれないように）
@@ -1360,7 +1386,7 @@ function drawReport() {
     const miss = d.items.find(it => it.required && (a[it.id] === undefined || (it.type === '時間' && (!a[it.id].start || !a[it.id].end))));
     if (miss) return toast('「' + miss.label + '」を入力してください');
     const siteName = (places.find(s => s.id === f.siteId) || {}).name || '';
-    saveReport({ date: f.date, siteId: f.siteId, answers: JSON.parse(JSON.stringify(a)) }, siteName);
+    saveReport({ date: f.date, siteId: f.siteId, answers: JSON.parse(JSON.stringify(a)), oyakata: crewOn(d, f.siteId, f.date).filter(o => !(f.crewOff || {})[o.id]).map(o => o.id) }, siteName);
   };
 }
 function saveReport(p, siteName) {
