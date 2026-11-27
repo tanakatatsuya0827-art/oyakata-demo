@@ -1247,11 +1247,12 @@ function drawReport() {
   const req = (it) => it.required ? '<span class="req">必須</span>' : '';
   const help = (it) => it.help ? '<p class="help">' + esc(it.help) + '</p>' : '';
   let h = S.reportHead();
-  // 前回と同じ内容（現場・時間・作業内容など）で、選んでいる日の日報を出す。確かめる画面を1回はさむ
-  const same = sameAsLast(d, places);
-  if (same) h += '<button class="quick" id="rSame" style="margin-bottom:8px"><b>前回と同じ内容で' + (f.date === today() ? '今日' : esc(jpDate(f.date))) + 'の日報を出す</b>' +
-    esc(same.siteName) + (same.time ? '　' + esc(same.time) : '') + '<br><span class="muted">押すと内容を確かめる画面が出ます</span></button>';
-  if (d.last) h += '<button class="quick" id="rLast" style="padding:10px 14px"><b style="font-size:16px;margin:0">' + (same ? '前回の内容を入れて直す' : '前回の内容を入れる') + '</b><span class="muted">' + esc(d.last.siteName) + '（時間は今回の分を入れてください）</span></button><div style="height:10px"></div>';
+  // 前回の内容（現場・時間・作業内容など全部）を入力欄に入れる。日付は選んでいる日のまま。違うところだけ直して提出する
+  if (d.last) {
+    const lt = d.items.map(it => it.type === '時間' && d.last.answers && d.last.answers[it.id] && d.last.answers[it.id].start ? d.last.answers[it.id] : null).find(Boolean);
+    h += '<button class="quick" id="rLast" style="padding:10px 14px"><b style="font-size:16px;margin:0">前回の内容を入れる</b><span class="muted">' + esc(d.last.siteName) +
+      (lt ? '　' + esc(lt.start + '〜' + lt.end) : '') + '（日付は' + (f.date === today() ? '今日' : esc(jpDate(f.date))) + 'のまま）</span></button><div style="height:10px"></div>';
+  }
   h += '<div class="card">' +
     '<label>日付<span class="req">必須</span></label><div class="seg">' +
     '<button data-rdate="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日 ' + esc(jpDate(today())) + '</button>' +
@@ -1287,14 +1288,14 @@ function drawReport() {
   $('app').innerHTML = h;
   bindReportHead();
 
-  if ($('rSame')) $('rSame').onclick = () => confirmSame(d, places, f.date);
   if ($('rLast')) $('rLast').onclick = () => {
-    const keepTime = {};
-    d.items.forEach(it => { if (it.type === '時間' && a[it.id]) keepTime[it.id] = a[it.id]; });
-    f.answers = Object.assign(JSON.parse(JSON.stringify(d.last.answers || {})), keepTime);
-    d.items.forEach(it => { if (it.type === '時間' && !keepTime[it.id]) delete f.answers[it.id]; });
+    f.answers = JSON.parse(JSON.stringify(d.last.answers || {})); // 時間も前回のまま入れる
+    // 時刻の入力欄は「08:00」の形しか表示できないので、「8:00」は前に0を付ける
+    const hm = v => { const m = /^(\d{1,2}):(\d{2})/.exec(String(v || '')); return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : v; };
+    d.items.forEach(it => { const t = f.answers[it.id]; if (it.type === '時間' && t) { if (t.start) t.start = hm(t.start); if (t.end) t.end = hm(t.end); } });
+    f.hoursEdited = false;
     if (places.some(s => s.id === d.last.siteId)) f.siteId = d.last.siteId;
-    drawReport(); toast('前回の内容を入れました。時間を入れてください');
+    drawReport(); toast('前回の内容を入れました。違うところだけ直して提出してください');
   };
   document.querySelectorAll('[data-rdate]').forEach(b => b.onclick = () => { f.date = b.dataset.rdate; drawReport(); });
   $('rdate').onchange = (e) => { f.date = e.target.value; drawReport(); };
@@ -1349,43 +1350,6 @@ function drawReport() {
     const siteName = (places.find(s => s.id === f.siteId) || {}).name || '';
     saveReport({ date: f.date, siteId: f.siteId, answers: JSON.parse(JSON.stringify(a)) }, siteName);
   };
-}
-/** 前回の日報をそのまま使えるか（現場がまだ選べて、必須の項目がそろっている）。使えれば表示用のまとめを返す */
-function sameAsLast(d, places) {
-  const last = d.last;
-  if (!last || !last.answers) return null;
-  const site = places.find(s => s.id === last.siteId);
-  if (!site) return null;
-  const a = last.answers;
-  const miss = d.items.find(it => it.required && (a[it.id] === undefined || (it.type === '時間' && (!a[it.id].start || !a[it.id].end))));
-  if (miss) return null;
-  const tIt = d.items.find(it => it.type === '時間' && a[it.id] && a[it.id].start);
-  const t = tIt ? a[tIt.id] : null;
-  return { siteName: site.name, time: t ? t.start + '〜' + t.end + (t.hours !== '' && t.hours !== undefined ? '（' + t.hours + '時間）' : '') : '' };
-}
-function answerText(it, v) {
-  if (v === undefined || v === null || v === '') return '';
-  if (it.type === '時間') return (v.start || '') + '〜' + (v.end || '') + (v.hours !== '' && v.hours !== undefined ? '（' + v.hours + '時間）' : '');
-  if (it.type === '複数選ぶ') return [].concat(v).join('・');
-  if (it.type === 'はい/いいえ') return v ? 'あり' : '';
-  if (it.type === '人数') return Object.keys(v).map(k => k + ' ' + v[k] + '人').join('・');
-  return String(v);
-}
-function confirmSame(d, places, date) {
-  const last = d.last, site = places.find(s => s.id === last.siteId);
-  const rl = S.data['rlist:' + date.slice(0, 7)];
-  const dup = rl && rl.rows && rl.rows.some(r => r.date === date);
-  const lines = d.items.map(it => { const t = answerText(it, last.answers[it.id]); return t ? '<tr><th style="text-align:left;padding:4px 10px 4px 0;white-space:nowrap;color:var(--muted)">' + esc(it.label) + '</th><td style="padding:4px 0">' + esc(t) + '</td></tr>' : ''; }).join('');
-  modal('<h3 style="margin-top:0">' + esc(jpDate(date)) + 'の日報</h3>' +
-    '<table style="width:100%;border-collapse:collapse;font-size:15px"><tr><th style="text-align:left;padding:4px 10px 4px 0;color:var(--muted)">現場</th><td style="padding:4px 0">' + esc(site.name) + '</td></tr>' + lines + '</table>' +
-    (dup ? '<div class="alert warn" style="margin:12px 0 0">' + esc(jpDate(date)) + 'の日報はもう出しています。もう1件出すときだけ「提出する」を押してください。</div>' : '') +
-    '<div style="height:14px"></div><div class="row"><button id="mNo">直す</button><button id="mYes" class="primary" style="width:auto">この内容で提出する</button></div>');
-  $('mNo').onclick = () => {
-    closeModal();
-    const f = S.rform; f.answers = JSON.parse(JSON.stringify(last.answers)); f.siteId = last.siteId; f.hoursEdited = true;
-    drawReport(); toast('前回の内容を入れました。直してから提出してください');
-  };
-  $('mYes').onclick = () => { closeModal(); saveReport({ date: date, siteId: last.siteId, answers: JSON.parse(JSON.stringify(last.answers)) }, site.name); };
 }
 function saveReport(p, siteName) {
   if (S.acting) return toast('前の日報を保存中です。少しお待ちください');
