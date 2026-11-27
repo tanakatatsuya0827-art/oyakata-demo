@@ -1277,8 +1277,6 @@ function drawReport() {
   if (!S.rform) S.rform = newReportForm();
   const f = S.rform, a = f.answers;
   const places = (d.office ? [d.office] : []).concat(d.sites);
-  const recent = d.recent.map(id => places.find(s => s.id === id)).filter(Boolean);
-  if (d.office && !recent.some(s => s.id === d.office.id)) recent.push(d.office);
   const filtered = d.sites.filter(s => !f.filter || (s.name + s.short).indexOf(f.filter) >= 0);
   const req = (it) => it.required ? '<span class="req">必須</span>' : '';
   const help = (it) => it.help ? '<p class="help">' + esc(it.help) + '</p>' : '';
@@ -1295,7 +1293,7 @@ function drawReport() {
     '<button data-rdate="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日</button></div>' +
     '<div style="height:8px"></div><input type="date" id="rdate" value="' + esc(f.date) + '" max="' + today() + '">' +
     '<label>現場' + (d.office ? '・' + esc(d.office.name) : '') + '<span class="req">必須</span></label>' +
-    (recent.length ? '<div class="chips" style="margin-bottom:8px">' + recent.map(s => '<button class="chip ' + (f.siteId === s.id ? 'on' : '') + '" data-rsite="' + esc(s.id) + '">' + esc(s.short || s.name) + '</button>').join('') + '</div>' : '') +
+    // 現場はプルダウンだけ（よく使う現場のボタンは 2026-11-28 に田中さんの指示でやめた）
     (d.sites.length > 8 ? '<input id="rfilter" placeholder="現場名で絞り込み" value="' + esc(f.filter) + '"><div style="height:8px"></div>' : '') +
     '<select id="rsite"><option value="">現場を選んでください</option>' +
     (d.office ? '<option value="' + esc(d.office.id) + '"' + (f.siteId === d.office.id ? ' selected' : '') + '>' + esc(d.office.name) + '</option>' : '') +
@@ -1336,8 +1334,7 @@ function drawReport() {
   };
   document.querySelectorAll('[data-rdate]').forEach(b => b.onclick = () => { f.date = b.dataset.rdate; drawReport(); });
   $('rdate').onchange = (e) => { f.date = e.target.value; drawReport(); };
-  document.querySelectorAll('[data-rsite]').forEach(b => b.onclick = () => { f.siteId = b.dataset.rsite; drawReport(); });
-  $('rsite').onchange = (e) => { f.siteId = e.target.value; document.querySelectorAll('[data-rsite]').forEach(x => x.classList.toggle('on', x.dataset.rsite === f.siteId)); $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f); };
+  $('rsite').onchange = (e) => { f.siteId = e.target.value; $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f); };
   bindCrew(f);
   if ($('rfilter')) $('rfilter').oninput = (e) => { f.filter = e.target.value; const pos = e.target.selectionStart; drawReport(); $('rfilter').focus(); $('rfilter').setSelectionRange(pos, pos); };
   const item = (el) => d.items[Number(el.dataset.i)];
