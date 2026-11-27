@@ -125,7 +125,7 @@ const CONFIG = {
   // 日報専用など、別のLIFFアプリから開くとき用。URLの ?app=… で選ぶ（無ければ LIFF_ID）
   // 例：{ report: '2012354614-xxxxxxxx' }。LIFFアプリのエンドポイントを …/?app=report&page=report にする
   LIFF_IDS: {"report": "2012354614-HMlT2S1N", "work": "2012354614-4SIcOfnk", "list": "2012354614-tK2ySdRB", "invoice": "2012354614-JJimQ1Tl", "approve": "2012354614-aTRKPzb3", "req": "2012354614-qvlTu8iJ", "sreq": "2012354614-AAx2aylE", "admin": "2012354614-JYLMpcJD"},
-  SEND_CHAT_MESSAGE: true, // 作業登録後、LINEのトークに登録内容を送る（LINE内で開いたときのみ）
+  SEND_CHAT_MESSAGE: false, // true にすると、作業登録・日報のあと LINE のトークに内容を送る（公式LINEの自動応答が返信してしまうので 2026-11-28 に止めた。LIFFの chat_message.write も外した）
 };
 
 /* ===== 状態 ===== */
@@ -643,18 +643,32 @@ async function pageWork() {
   }).catch(e => console.warn('sites', e));
 }
 function showWork() {
-  const jobs = S.sites.jobs;
+  const jobs = openJobs();
   if (!S.form || !jobs.some(j => j.id === S.form.reqId)) {
     // 今日まだ登録していない依頼を先に選んでおく
-    const j = jobs.find(x => inRange(x, today()) && !x.done && !doneOn(x, today())) || jobs.find(x => inRange(x, today()) && !x.done) || jobs.find(x => !x.done) || null;
+    const j = jobs.find(x => inRange(x, today()) && !doneOn(x, today())) || jobs[0] || null;
     S.form = j ? newWorkForm(j) : null;
   }
   drawWork();
 }
 const doneOn = (j, d) => (j.days && j.days[d]) || null; // その日に登録済みなら作業量の一覧
+const nextDay = (d) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + 1); return ymd(x); };
+/** まだ登録していない日（依頼の期間のうち、先月1日〜今日。サーバーが受け付ける範囲） */
+function openDays(j) {
+  const from = addMonth(thisMonth(), -1) + '-01';
+  const s = j.start > from ? j.start : from, e = j.end < today() ? j.end : today();
+  const out = [];
+  for (let d = s; d <= e && out.length < 62; d = nextDay(d)) if (!doneOn(j, d)) out.push(d);
+  return out;
+}
+/** 作業登録の画面に出す依頼：まだ登録していないものだけ（登録済みは「実績」で見る） */
+function openJobs() {
+  return S.sites.jobs.filter(j => j.kind === '請負' ? !j.done : openDays(j).length > 0);
+}
 function newWorkForm(j) {
-  // まだ登録していない日を選んでおく（今日→昨日の順）。どちらも登録済みなら今日
+  // まだ登録していない日を選んでおく（今日→昨日→いちばん新しい未登録の日）
   let d = [today(), yesterday()].find(x => inRange(j, x) && !doneOn(j, x));
+  if (!d && j.kind !== '請負') d = openDays(j).slice(-1)[0];
   if (!d) d = inRange(j, today()) ? today() : (j.end < today() ? j.end : j.start);
   return { reqId: j.id, date: d > today() ? today() : d, unit: (unitsOf(j)[0] || ['day'])[0], hours: '', note: '' };
 }
@@ -665,9 +679,18 @@ function workAmount(j, f) {
   return u[0] === 'hour' ? (f.hours ? Math.round(j.rateHour * Number(f.hours)) : 0) : j[u[2]];
 }
 function drawWork() {
-  const jobs = S.sites.jobs, waiting = S.badges.req || 0;
+  const all = S.sites.jobs, jobs = openJobs(), waiting = S.badges.req || 0;
   let h = '<h2>作業を登録</h2>';
   if (waiting) h += '<div class="alert warn">返事をしていない依頼が' + waiting + '件あります。<button class="chip" id="toReq" style="margin-left:6px;min-height:32px">依頼を見る</button></div>';
+  if (all.length && !jobs.length) {
+    h += '<div class="alert ok" style="font-size:17px"><b>✓ 登録できていない作業はありません</b><br><span style="font-size:14px">登録した内容は「実績」で見られます。</span></div>' +
+      '<button style="width:100%" id="toList">実績を見る</button>' +
+      '<p class="muted">一覧にない現場で作業した日は、職員へ連絡してください。</p>';
+    $('app').innerHTML = h;
+    if ($('toReq')) $('toReq').onclick = () => { S.tab = 'req'; render(); };
+    $('toList').onclick = () => { S.tab = 'list'; render(); };
+    return;
+  }
   if (!jobs.length) {
     h += '<div class="card"><p><b>確定した依頼がありません。</b></p><p class="muted">作業の登録は、職員から届いた依頼が確定してからできます。依頼がないのに作業した日は、職員へ連絡してください（職員があとから依頼を作ります）。</p></div>';
     $('app').innerHTML = h;
@@ -675,13 +698,11 @@ function drawWork() {
     return;
   }
   // 今日の分は1回押すだけ
-  const todays = jobs.filter(j => j.kind === '応援' && inRange(j, today()) && unitsOf(j).some(u => u[0] !== 'hour'));
+  const todays = jobs.filter(j => j.kind === '応援' && inRange(j, today()) && !doneOn(j, today()) && unitsOf(j).some(u => u[0] !== 'hour'));
   if (todays.length) h += '<h3 style="margin-top:4px">今日 ' + esc(jpDate(today())) + '</h3>';
   todays.forEach((j, i) => {
-    const u = unitsOf(j).find(x => x[0] !== 'hour'), done = doneOn(j, today());
-    h += done
-      ? '<div class="alert ok" style="margin-bottom:8px"><b>✓ 登録済み：' + esc(j.short || j.siteName) + '（' + esc(done.join('・')) + '）</b><br><span style="font-size:14px">今日の分は登録できています。もう押さなくて大丈夫です。</span></div>'
-      : '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
+    const u = unitsOf(j).find(x => x[0] !== 'hour');
+    h += '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
         esc(j.siteName) + '<br>' + esc(yen(j[u[2]])) + '　<span class="muted">押すと登録します</span></button>';
   });
   if (todays.length) h += '<p class="muted" style="text-align:center;margin:6px 0 4px">半日・時間・別の日は下で入力</p>';
@@ -690,8 +711,8 @@ function drawWork() {
   const j = jobs.find(x => x.id === f.reqId) || jobs[0];
   h += '<div class="card"><label>依頼（確定した現場）</label>' +
     jobs.map(x => '<button class="persona' + (x.id === j.id ? ' on' : '') + '" data-job="' + esc(x.id) + '" style="' + (x.id === j.id ? 'border:2px solid var(--accent);background:var(--accent-weak)' : '') + '">' +
-      '<b>' + esc(x.siteName) + '</b><small>' + esc(x.kind + '・' + periodText(x) + '・' + rateText(x)) + (x.done ? '・完了報告済み' : '') + '</small>' +
-      (x.kind === '応援' && doneOn(x, today()) ? '<small style="color:var(--ok);font-weight:700">✓ 今日は登録済み</small>' : '') + '</button>').join('');
+      '<b>' + esc(x.siteName) + '</b><small>' + esc(x.kind + '・' + periodText(x) + '・' + rateText(x)) + '</small>' +
+      (x.kind === '応援' ? (od => '<small style="color:var(--warn-ink,#9a5b00);font-weight:700">未登録：' + esc(od.slice(-3).reverse().map(jpDate).join('・')) + (od.length > 3 ? ' ほか' + (od.length - 3) + '日' : '') + '</small>')(openDays(x)) : '') + '</button>').join('');
   if (j.kind === '請負') {
     h += '<label>完了日</label><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(j.end < today() ? j.end : today()) + '">' +
       '<div class="between" style="margin-top:14px"><span>請負金額（税抜）</span><span class="big">' + esc(yen(j.amount)) + '</span></div>' +
@@ -1226,7 +1247,11 @@ function drawReport() {
   const req = (it) => it.required ? '<span class="req">必須</span>' : '';
   const help = (it) => it.help ? '<p class="help">' + esc(it.help) + '</p>' : '';
   let h = S.reportHead();
-  if (d.last) h += '<button class="quick" id="rLast" style="padding:10px 14px"><b style="font-size:16px;margin:0">前回の内容を入れる</b><span class="muted">' + esc(d.last.siteName) + '（日付・時間は今回の分を入れてください）</span></button><div style="height:10px"></div>';
+  // 前回と同じ内容（現場・時間・作業内容など）で、選んでいる日の日報を出す。確かめる画面を1回はさむ
+  const same = sameAsLast(d, places);
+  if (same) h += '<button class="quick" id="rSame" style="margin-bottom:8px"><b>前回と同じ内容で' + (f.date === today() ? '今日' : esc(jpDate(f.date))) + 'の日報を出す</b>' +
+    esc(same.siteName) + (same.time ? '　' + esc(same.time) : '') + '<br><span class="muted">押すと内容を確かめる画面が出ます</span></button>';
+  if (d.last) h += '<button class="quick" id="rLast" style="padding:10px 14px"><b style="font-size:16px;margin:0">' + (same ? '前回の内容を入れて直す' : '前回の内容を入れる') + '</b><span class="muted">' + esc(d.last.siteName) + '（時間は今回の分を入れてください）</span></button><div style="height:10px"></div>';
   h += '<div class="card">' +
     '<label>日付<span class="req">必須</span></label><div class="seg">' +
     '<button data-rdate="' + today() + '" class="' + (f.date === today() ? 'on' : '') + '">今日 ' + esc(jpDate(today())) + '</button>' +
@@ -1262,6 +1287,7 @@ function drawReport() {
   $('app').innerHTML = h;
   bindReportHead();
 
+  if ($('rSame')) $('rSame').onclick = () => confirmSame(d, places, f.date);
   if ($('rLast')) $('rLast').onclick = () => {
     const keepTime = {};
     d.items.forEach(it => { if (it.type === '時間' && a[it.id]) keepTime[it.id] = a[it.id]; });
@@ -1323,6 +1349,43 @@ function drawReport() {
     const siteName = (places.find(s => s.id === f.siteId) || {}).name || '';
     saveReport({ date: f.date, siteId: f.siteId, answers: JSON.parse(JSON.stringify(a)) }, siteName);
   };
+}
+/** 前回の日報をそのまま使えるか（現場がまだ選べて、必須の項目がそろっている）。使えれば表示用のまとめを返す */
+function sameAsLast(d, places) {
+  const last = d.last;
+  if (!last || !last.answers) return null;
+  const site = places.find(s => s.id === last.siteId);
+  if (!site) return null;
+  const a = last.answers;
+  const miss = d.items.find(it => it.required && (a[it.id] === undefined || (it.type === '時間' && (!a[it.id].start || !a[it.id].end))));
+  if (miss) return null;
+  const tIt = d.items.find(it => it.type === '時間' && a[it.id] && a[it.id].start);
+  const t = tIt ? a[tIt.id] : null;
+  return { siteName: site.name, time: t ? t.start + '〜' + t.end + (t.hours !== '' && t.hours !== undefined ? '（' + t.hours + '時間）' : '') : '' };
+}
+function answerText(it, v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (it.type === '時間') return (v.start || '') + '〜' + (v.end || '') + (v.hours !== '' && v.hours !== undefined ? '（' + v.hours + '時間）' : '');
+  if (it.type === '複数選ぶ') return [].concat(v).join('・');
+  if (it.type === 'はい/いいえ') return v ? 'あり' : '';
+  if (it.type === '人数') return Object.keys(v).map(k => k + ' ' + v[k] + '人').join('・');
+  return String(v);
+}
+function confirmSame(d, places, date) {
+  const last = d.last, site = places.find(s => s.id === last.siteId);
+  const rl = S.data['rlist:' + date.slice(0, 7)];
+  const dup = rl && rl.rows && rl.rows.some(r => r.date === date);
+  const lines = d.items.map(it => { const t = answerText(it, last.answers[it.id]); return t ? '<tr><th style="text-align:left;padding:4px 10px 4px 0;white-space:nowrap;color:var(--muted)">' + esc(it.label) + '</th><td style="padding:4px 0">' + esc(t) + '</td></tr>' : ''; }).join('');
+  modal('<h3 style="margin-top:0">' + esc(jpDate(date)) + 'の日報</h3>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:15px"><tr><th style="text-align:left;padding:4px 10px 4px 0;color:var(--muted)">現場</th><td style="padding:4px 0">' + esc(site.name) + '</td></tr>' + lines + '</table>' +
+    (dup ? '<div class="alert warn" style="margin:12px 0 0">' + esc(jpDate(date)) + 'の日報はもう出しています。もう1件出すときだけ「提出する」を押してください。</div>' : '') +
+    '<div style="height:14px"></div><div class="row"><button id="mNo">直す</button><button id="mYes" class="primary" style="width:auto">この内容で提出する</button></div>');
+  $('mNo').onclick = () => {
+    closeModal();
+    const f = S.rform; f.answers = JSON.parse(JSON.stringify(last.answers)); f.siteId = last.siteId; f.hoursEdited = true;
+    drawReport(); toast('前回の内容を入れました。直してから提出してください');
+  };
+  $('mYes').onclick = () => { closeModal(); saveReport({ date: date, siteId: last.siteId, answers: JSON.parse(JSON.stringify(last.answers)) }, site.name); };
 }
 function saveReport(p, siteName) {
   if (S.acting) return toast('前の日報を保存中です。少しお待ちください');
