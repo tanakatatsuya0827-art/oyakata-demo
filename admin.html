@@ -377,7 +377,7 @@ PAGES.works = d => {
     table('works', [
       { k: 'date', label: '作業日', fmt: r => md(r.date), csv: r => r.date, cls: 'nw' },
       { k: 'name', label: '親方', cls: 'nw' }, { k: 'siteName', label: '現場', cls: 'wrap' },
-      { k: 'kind', label: '種類', cls: 'nw' }, { k: 'unit', label: '作業量', cls: 'nw', fmt: r => esc(r.unit) + (r.hours ? '（' + r.hours + '時間）' : '') },
+      { k: 'kind', label: '種類', cls: 'nw' }, { k: 'unit', label: '作業量', cls: 'nw', fmt: r => r.unit === '時間' ? '残業' + esc(r.hours) + '時間' : esc(r.unit) + (r.hours ? '（' + r.hours + '時間）' : '') },
       { k: 'amount', label: '金額', num: true, fmt: r => yen(r.amount), csv: r => r.amount },
       { k: 'status', label: '状態', fmt: r => badge(r.status) + (r.reason ? '<div class="muted">' + esc(r.reason) + '</div>' : ''), csv: r => r.status + (r.reason ? '（' + r.reason + '）' : '') },
       { k: 'approver', label: '承認者', cls: 'nw', fmt: r => esc(r.approver) + (r.approvedAt ? '<div class="muted">' + esc(r.approvedAt.slice(5, 16)) + '</div>' : ''), csv: r => r.approver },
@@ -439,7 +439,7 @@ PAGES.reports = d => {
 
 PAGES.requests = d => {
   const f = S.f.requests || {};
-  const rate = q => q.kind === '請負' ? '請負 ' + yen(q.amount) : [['1日', q.rateDay], ['半日', q.rateHalf], ['1時間', q.rateHour]].filter(x => x[1]).map(x => x[0] + ' ' + yen(x[1])).join(' / ');
+  const rate = q => q.kind === '請負' ? '請負 ' + yen(q.amount) : [['1日', q.rateDay], ['半日', q.rateHalf], ['残業1時間', q.rateHour]].filter(x => x[1]).map(x => x[0] + ' ' + yen(x[1])).join(' / ');
   const ans = (q, s) => q.answers.filter(a => a.status === s);
   const rows = d.requests.filter(q => (!f.status || q.status === f.status) && (!f.kind || q.kind === f.kind) && textHit(f.q, q, ['siteName', 'area', 'content', 'creator', 'id']));
   put('<h1>応援依頼・請負依頼</h1><p class="lead">' + ym(S.month) + 'にかかる依頼と、その月に作った依頼。</p>' +

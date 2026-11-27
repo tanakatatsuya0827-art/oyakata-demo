@@ -157,7 +157,7 @@ const addMonth = (ym, n) => { const d = new Date(Number(ym.slice(0, 4)), Number(
 const jpDate = (s) => { const d = new Date(s + 'T00:00:00'); return (d.getMonth() + 1) + '/' + d.getDate() + '（' + '日月火水木金土'[d.getDay()] + '）'; };
 const jpMonth = (ym) => Number(ym.slice(0, 4)) + '年' + Number(ym.slice(5, 7)) + '月';
 const companyName = () => S.app.company || '会社';
-const unitText = (w) => w.kind === '請負' ? '請負（一式）' : (w.unit === '時間' ? w.hours + '時間' : w.unit);
+const unitText = (w) => w.kind === '請負' ? '請負（一式）' : (w.unit === '時間' ? '残業' + w.hours + '時間' : w.unit);
 
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
@@ -615,11 +615,12 @@ function pageWelcome() {
 }
 
 /* ===== 一人親方：作業登録（確定した依頼から選ぶ。現場の一覧は見せない） ===== */
-const UNIT_KEYS = [['day', '1日', 'rateDay'], ['half', '半日', 'rateHalf'], ['hour', '時間', 'rateHour']];
+// 作業量。「時間」は 1日（8時間）を超えた残業の時間（単価は残業1時間あたり）。シートには「時間」と書く
+const UNIT_KEYS = [['day', '1日', 'rateDay'], ['half', '半日', 'rateHalf'], ['hour', '残業', 'rateHour']];
 const unitsOf = (j) => UNIT_KEYS.filter(u => j[u[2]] > 0);
 const inRange = (j, d) => j.start <= d && d <= j.end;
 const periodText = (j) => j.start === j.end ? jpDate(j.start) : jpDate(j.start) + '〜' + jpDate(j.end);
-const rateText = (j) => j.kind === '請負' ? '請負 ' + yen(j.amount) : (unitsOf(j).map(u => u[1] + ' ' + yen(j[u[2]])).join('・') || '単価は親方ごと');
+const rateText = (j) => j.kind === '請負' ? '請負 ' + yen(j.amount) : (unitsOf(j).map(u => (u[0] === 'hour' ? '残業1時間' : u[1]) + ' ' + yen(j[u[2]])).join('・') || '単価は親方ごと');
 async function pageWork() {
   $('app').innerHTML = '<div class="card">読み込み中…</div>';
   if (!S.sites || !S.sites.jobs) {
@@ -676,7 +677,8 @@ function workAmount(j, f) {
   if (j.kind === '請負') return j.amount;
   const u = UNIT_KEYS.find(x => x[0] === f.unit);
   if (!u) return 0;
-  return u[0] === 'hour' ? (f.hours ? Math.round(j.rateHour * Number(f.hours)) : 0) : j[u[2]];
+  if (u[0] === 'hour') return f.hours ? Math.round(j.rateHour * Number(f.hours)) : 0;
+  return j[u[2]] + (u[0] === 'day' && Number(f.ot) > 0 && j.rateHour > 0 ? Math.round(j.rateHour * Number(f.ot)) : 0);
 }
 function drawWork() {
   const all = S.sites.jobs, jobs = openJobs(), waiting = S.badges.req || 0;
@@ -730,7 +732,8 @@ function drawWork() {
       (inRange(j, yesterday()) ? '<button data-date="' + yesterday() + '" class="' + (f.date === yesterday() ? 'on' : '') + '">昨日' + (doneOn(j, yesterday()) ? ' ✓済' : '') + '</button>' : '') + '</div>' +
       '<div style="height:8px"></div><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(maxD) + '">' +
       '<label>作業量</label><div class="seg">' + units.map(u => '<button data-unit="' + u[0] + '" class="' + (f.unit === u[0] ? 'on' : '') + '">' + u[1] + '</button>').join('') + '</div>' +
-      (f.unit === 'hour' ? '<label>時間数</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：3">' : '') +
+      (f.unit === 'hour' ? '<label>残業の時間数（8時間を超えた分）</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：2">' : '') +
+      (f.unit === 'day' && j.rateHour > 0 ? '<label>残業（8時間を超えた分・あれば）</label><div class="row" style="align-items:center"><input id="ot" type="number" inputmode="decimal" min="0" max="12" step="0.5" value="' + esc(f.ot || '') + '" placeholder="0" style="flex:1"><span>時間</span></div>' : '') +
       '<div class="between" style="margin-top:14px"><span>金額（税抜）</span><span class="big" id="amountView">' + esc(yen(workAmount(j, f))) + '</span></div>' +
       '<label>作業内容（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '" placeholder="例：2階給水配管">' +
       (dd ? '<div class="alert warn" style="margin:14px 0 0"><b>' + esc(jpDate(f.date)) + 'はこの現場で登録済みです（' + esc(dd.join('・')) + '）。</b><br>同じ日にもう1件登録するときだけ、下のボタンを押してください。</div>' : '') +
@@ -748,18 +751,20 @@ function drawWork() {
   if ($('date')) $('date').onchange = (e) => { f.date = e.target.value; drawWork(); };
   document.querySelectorAll('[data-unit]').forEach(b => b.onclick = () => { f.unit = b.dataset.unit; drawWork(); });
   if ($('hours')) $('hours').oninput = (e) => { f.hours = e.target.value; $('amountView').textContent = yen(workAmount(j, f)); };
+  if ($('ot')) $('ot').oninput = (e) => { f.ot = e.target.value; $('amountView').textContent = yen(workAmount(j, f)); };
   $('note').oninput = (e) => { f.note = e.target.value; };
   $('save').onclick = () => {
     if (!f.date) return toast('日付を選んでください');
     if (f.date < j.start || f.date > j.end) return toast('依頼の期間（' + periodText(j) + '）の日付を選んでください');
-    if (j.kind === '応援' && f.unit === 'hour' && !f.hours) return toast('時間数を入力してください');
-    saveWork({ reqId: j.id, date: f.date, unit: f.unit, hours: f.hours, note: f.note }, j);
+    if (j.kind === '応援' && f.unit === 'hour' && !f.hours) return toast('残業の時間数を入力してください');
+    const ot = f.unit === 'day' && Number(f.ot) > 0 ? Number(f.ot) : 0;
+    saveWork(Object.assign({ reqId: j.id, date: f.date, unit: f.unit, hours: f.hours, note: f.note }, ot ? { overtime: ot } : {}), j);
   };
 }
 // 押した瞬間に結果の画面へ切り替え、保存が終わったら「登録しました」に変える
 function saveWork(p, job, force) {
   if (S.acting) return toast('前の登録を保存中です。少しお待ちください');
-  const label = job.kind === '請負' ? '請負（完了報告）' : (({ day: '1日', half: '半日', hour: (p.hours || '') + '時間' })[p.unit] || '');
+  const label = job.kind === '請負' ? '請負（完了報告）' : (({ day: '1日' + (p.overtime ? '＋残業' + p.overtime + '時間' : ''), half: '半日', hour: '残業' + (p.hours || '') + '時間' })[p.unit] || '');
   const formBackup = S.form;
   S.form = null;
   $('app').innerHTML = '<div class="alert saving" id="saveState" style="font-size:17px;background:var(--accent-weak);color:var(--ink)"><b>保存しています</b><br>' +
@@ -794,19 +799,23 @@ function saveWork(p, job, force) {
       const x = S.sites.jobs.find(y => y.id === r.reqId);
       if (x) {
         if (r.kind === '請負') x.done = true;
-        x.days = x.days || {}; (x.days[r.date] = x.days[r.date] || []).push(r.unit === '時間' ? r.hours + '時間' : r.unit);
+        x.days = x.days || {}; (x.days[r.date] = x.days[r.date] || []).push(r.unit === '時間' ? '残業' + r.hours + '時間' : r.unit);
+        if (r.overtime) x.days[r.date].push('残業' + r.overtime.hours + '時間');
       }
       if (S.me) cacheSet({ me: S.me, sites: S.sites });
     }
     // 今月の実績の一覧にも、手元で1行足しておく（開いたときにすぐ出る）
     const lk = 'list:' + r.date.slice(0, 7), list = S.data[lk];
     if (list) {
-      const rows = list.rows.concat([{ id: r.id, date: r.date, siteId: r.siteId, siteName: r.siteName, kind: r.kind,
-        unit: r.unit, hours: r.hours, amount: r.amount, note: p.note || '', status: '登録済', reason: '', invoiceId: '', reqId: r.reqId }])
+      const add = [{ id: r.id, date: r.date, siteId: r.siteId, siteName: r.siteName, kind: r.kind,
+        unit: r.unit, hours: r.hours, amount: r.amount, note: p.note || '', status: '登録済', reason: '', invoiceId: '', reqId: r.reqId }];
+      if (r.overtime) add.push({ id: r.overtime.id, date: r.date, siteId: r.siteId, siteName: r.siteName, kind: r.kind,
+        unit: '時間', hours: r.overtime.hours, amount: r.overtime.amount, note: '残業', status: '登録済', reason: '', invoiceId: '', reqId: r.reqId });
+      const rows = list.rows.concat(add)
         .sort((a, b) => (a.status === '差戻' ? -1 : 0) - (b.status === '差戻' ? -1 : 0) || a.date.localeCompare(b.date));
-      S.data[lk] = Object.assign({}, list, { rows: rows, total: list.total + r.amount });
+      S.data[lk] = Object.assign({}, list, { rows: rows, total: list.total + r.amount + (r.overtime ? r.overtime.amount : 0) });
     }
-    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.kind === '請負' ? '請負（完了報告）' : r.unit === '時間' ? r.hours + '時間' : r.unit) + ' ' + yen(r.amount);
+    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.kind === '請負' ? '請負（完了報告）' : r.unit === '時間' ? '残業' + r.hours + '時間' : r.unit + (r.overtime ? '＋残業' + r.overtime.hours + '時間' : '')) + ' ' + yen(r.amount + (r.overtime ? r.overtime.amount : 0));
     if ($('saveState')) {
       $('saveState').outerHTML = '<div class="alert ok" id="saveState" style="font-size:17px"><b>登録しました ✓</b><br>' + esc(text.replace('【作業登録】', '')) + '</div>';
       if ($('close')) { $('close').disabled = false; $('close').textContent = '閉じる'; $('close').onclick = () => liff.closeWindow(); }
@@ -936,7 +945,7 @@ function drawSreqForm(form) {
     '<label for="qcontent">内容</label><input id="qcontent" maxlength="200" value="' + v('content') + '" placeholder="' + (f.kind === '請負' ? '例：2階トイレの給排水一式' : '例：給排水の配管、8時集合') + '">';
   if (f.kind === '応援') {
     h += '<label>単価（税抜）</label><p class="help" style="margin:0 0 6px">空のままなら、親方ごとの単価（事務が決めた単価）を使います。この現場だけ違う単価にするときだけ入れてください。</p><div class="row">' +
-      [['rateDay', '1日'], ['rateHalf', '半日'], ['rateHour', '1時間']].map(x => '<div style="flex:1"><label for="' + x[0] + '" style="margin-top:0">' + x[1] + '</label><input id="' + x[0] + '" type="number" inputmode="numeric" value="' + v(x[0]) + '"></div>').join('') + '</div>' +
+      [['rateDay', '1日'], ['rateHalf', '半日'], ['rateHour', '残業1時間']].map(x => '<div style="flex:1"><label for="' + x[0] + '" style="margin-top:0">' + x[1] + '</label><input id="' + x[0] + '" type="number" inputmode="numeric" value="' + v(x[0]) + '"></div>').join('') + '</div>' +
       '<label for="qpeople">必要人数</label><input id="qpeople" type="number" inputmode="numeric" min="1" max="50" value="' + v('people') + '">';
   } else {
     h += '<label for="qamount">請負金額（税抜）</label><input id="qamount" class="amount" type="number" inputmode="numeric" value="' + v('amount') + '">';
@@ -1110,7 +1119,7 @@ function drawProfile(p, isNew) {
     field('tel', '電話番号 *', 'inputmode="tel" maxlength="20"', v('tel')) +
     field('invoiceNo', 'インボイス登録番号（ある方のみ）', 'maxlength="14" placeholder="T1234567890123"', v('invoiceNo')) + '</div>' +
     (!isNew ? '<div class="card"><b>あなたの単価（税抜）</b><p style="margin:6px 0 0">' +
-      ([['1日', p.rateDay], ['半日', p.rateHalf], ['1時間', p.rateHour]].filter(x => x[1] > 0).map(x => x[0] + ' ' + esc(yen(x[1]))).join('・') || 'まだ決まっていません') +
+      ([['1日', p.rateDay], ['半日', p.rateHalf], ['残業1時間', p.rateHour]].filter(x => x[1] > 0).map(x => x[0] + ' ' + esc(yen(x[1]))).join('・') || 'まだ決まっていません') +
       '</p><p class="muted" style="margin:4px 0 0">単価は事務が決めます。変えたいときは事務へ連絡してください。依頼に単価が書いてある現場は、依頼の単価になります。</p></div>' : '') +
     '<div class="card"><b>振込先</b>' + (!isNew ? '<p class="muted" style="margin:4px 0 0">現在：' + v('bankName') + ' ' + v('branch') + ' ' + v('accountType') + ' ****' + v('accountLast4') + '<br>変更するときだけ入力してください。</p>' : '') +
     field('bankName', '銀行名' + (isNew ? ' *' : ''), 'maxlength="30"', '') +
