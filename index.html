@@ -157,7 +157,7 @@ const addMonth = (ym, n) => { const d = new Date(Number(ym.slice(0, 4)), Number(
 const jpDate = (s) => { const d = new Date(s + 'T00:00:00'); return (d.getMonth() + 1) + '/' + d.getDate() + '（' + '日月火水木金土'[d.getDay()] + '）'; };
 const jpMonth = (ym) => Number(ym.slice(0, 4)) + '年' + Number(ym.slice(5, 7)) + '月';
 const companyName = () => S.app.company || '会社';
-const unitText = (w) => w.kind === '請負' ? '請負（一式）' : (w.unit === '時間' ? '残業' + w.hours + '時間' : w.unit);
+const unitText = (w) => w.kind === '請負' ? '請負（一式）' : w.kind === '立替' ? '立替 ' + w.unit : (w.unit === '時間' ? '残業' + w.hours + '時間' : w.unit + (w.share > 1 ? '（' + w.share + '現場で分ける）' : ''));
 
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
@@ -216,7 +216,7 @@ async function api(action, params, earlyToken) {
   else if (action !== 'boot' && S.perf && S.perf.boot && !S.perf2Sent) { // boot の後の最初の問い合わせで、開くまでの全体を送る（GAS の showPerf で見る）
     body.perf2 = Object.assign({}, S.perf, { ready: S.perfReady || null, eb: S.earlyBoot ? 1 : 0, tab: curPage() }); S.perf2Sent = true;
   }
-  const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary'].indexOf(action) >= 0;
+  const safe = ['boot', 'sites', 'badges', 'listWork', 'myRequests', 'invoicePreview', 'pending', 'listRequests', 'listReports', 'reportForm', 'reqForm', 'profile', 'adminSummary', 'calendar', 'receipt'].indexOf(action) >= 0;
   // 書き込み系は操作ごとの番号をつけて送る。同じ番号が届いてもサーバーは1回しか処理しない（二重登録にならない）
   if (!safe) body.opId = newOpId();
   const p = S.mode === 'gas'
@@ -303,6 +303,7 @@ function firstReq(page, p) {
     case 'report': return { key: 'rform', action: 'reportForm', params: {} };
     case 'rlist': { const m = mon('report', thisMonth()); return { key: 'rlist:' + m, action: 'listReports', params: { month: m } }; }
     case 'admin': { const m = mon('admin', addMonth(thisMonth(), -1)); return { key: 'admin:' + m, action: 'adminSummary', params: { month: m } }; }
+    case 'cal': { const f = p.from || S.calFrom || today(); return { key: 'cal:' + f, action: 'calendar', params: { from: f } }; }
   }
   return null;
 }
@@ -451,7 +452,7 @@ function showPersonas() {
 /* 開いたときの読み込み。2回目以降は前回の内容ですぐ画面を出し、裏で最新に差し替える */
 /* 前に見た一覧（実績・請求書・依頼・承認・依頼管理・日報の一覧・管理）を端末に残し、次に開いたときすぐ出す。
    最新は裏で取りに行って差し替える。住所・電話・口座・請求書の本文（html）は残さない */
-const VIEW_DROP = ['html', 'address', 'tel', 'phone', 'bank', 'bankName', 'branch', 'accountType', 'accountNo', 'accountHolder', 'pdf', 'sheetUrl'];
+const VIEW_DROP = ['src', 'html', 'address', 'tel', 'phone', 'bank', 'bankName', 'branch', 'accountType', 'accountNo', 'accountHolder', 'pdf', 'sheetUrl'];
 function viewKeys() { // 次に開いたとき最初に使う場所（今月・先月）だけ
   return ['list:' + thisMonth(), 'inv:' + addMonth(thisMonth(), -1), 'myreq', 'pending', 'sreq:open', 'rlist:' + thisMonth(), 'admin:' + addMonth(thisMonth(), -1)];
 }
@@ -557,7 +558,7 @@ function tabsFor(me) {
   const t = [];
   if (me.oyakata && me.oyakata.status === '有効') t.push(['work', '✏️', '作業登録'], ['req', '📨', '依頼'], ['list', '📋', '実績'], ['invoice', '🧾', '請求書']);
   if (me.staff && me.staff.role !== '従業員') t.push(['sreq', '📣', '依頼管理'], ['approve', '✅', '承認']);
-  if (me.staff) t.push(['report', '📝', '日報']);
+  if (me.staff) t.push(['report', '📝', '日報'], ['cal', '📅', '予定']);
   if (me.staff && me.staff.role === '事務') t.push(['admin', '🗂️', '管理']);
   if (me.oyakata) t.push(['profile', '👤', '登録情報']);
   return t;
@@ -595,7 +596,7 @@ function render() {
   if (!tabs.length) { $('nav').classList.add('hidden'); return pageWelcome(); }
   if (!tabs.some(t => t[0] === S.tab)) S.tab = (S.badges.req && tabs.some(t => t[0] === 'req')) ? 'req' : tabs[0][0];
   drawNav();
-  ({ work: pageWork, req: pageReq, list: pageList, invoice: pageInvoice, sreq: pageSreq, approve: pageApprove, report: pageReport, admin: pageAdmin, profile: pageProfile })[S.tab]();
+  ({ work: pageWork, req: pageReq, list: pageList, invoice: pageInvoice, sreq: pageSreq, approve: pageApprove, report: pageReport, cal: pageCal, admin: pageAdmin, profile: pageProfile })[S.tab]();
   window.scrollTo(0, 0);
 }
 
@@ -618,6 +619,10 @@ function pageWelcome() {
 // 作業量。「時間」は 1日（8時間）を超えた残業の時間（単価は残業1時間あたり）。シートには「時間」と書く
 const UNIT_KEYS = [['day', '1日', 'rateDay'], ['half', '半日', 'rateHalf'], ['hour', '残業', 'rateHour']];
 const unitsOf = (j) => UNIT_KEYS.filter(u => j[u[2]] > 0);
+/** その日、別の現場で登録した日当（1日・半日）。あれば「日当を分ける」を出す（請求書を出したあとは分けられない） */
+const otherPay = (j, d) => ((S.sites && S.sites.pay && S.sites.pay[d]) || []).filter(x => x.siteId !== j.siteId);
+const canShare = (j, d) => j.kind === '応援' && otherPay(j, d).length > 0 && !otherPay(j, d).some(x => x.billed) && !(doneOn(j, d) || []).some(x => x === '1日' || x === '半日');
+const payText = (j, d) => otherPay(j, d).map(x => x.siteName + '（' + x.unit + '）').join('・');
 const inRange = (j, d) => j.start <= d && d <= j.end;
 const periodText = (j) => j.start === j.end ? jpDate(j.start) : jpDate(j.start) + '〜' + jpDate(j.end);
 const rateText = (j) => j.kind === '請負' ? '請負 ' + yen(j.amount) : (unitsOf(j).map(u => (u[0] === 'hour' ? '残業1時間' : u[1]) + ' ' + yen(j[u[2]])).join('・') || '単価は親方ごと');
@@ -676,7 +681,8 @@ function newWorkForm(j) {
 function workAmount(j, f) {
   if (j.kind === '請負') return j.amount;
   const u = UNIT_KEYS.find(x => x[0] === f.unit);
-  if (!u) return 0;
+  if (!u && f.unit !== 'share') return 0;
+  if (f.unit === 'share') return Number(f.ot) > 0 && j.rateHour > 0 ? Math.round(j.rateHour * Number(f.ot)) : 0;
   if (u[0] === 'hour') return f.hours ? Math.round(j.rateHour * Number(f.hours)) : 0;
   return j[u[2]] + (u[0] === 'day' && Number(f.ot) > 0 && j.rateHour > 0 ? Math.round(j.rateHour * Number(f.ot)) : 0);
 }
@@ -686,11 +692,12 @@ function drawWork() {
   if (waiting) h += '<div class="alert warn">返事をしていない依頼が' + waiting + '件あります。<button class="chip" id="toReq" style="margin-left:6px;min-height:32px">依頼を見る</button></div>';
   if (all.length && !jobs.length) {
     h += '<div class="alert ok" style="font-size:17px"><b>✓ 登録できていない作業はありません</b><br><span style="font-size:14px">登録した内容は「実績」で見られます。</span></div>' +
-      '<button style="width:100%" id="toList">実績を見る</button>' +
+      '<button style="width:100%" id="toList">実績を見る</button><div style="height:8px"></div>' + EXP_BTN +
       '<p class="muted">一覧にない現場で作業した日は、職員へ連絡してください。</p>';
     $('app').innerHTML = h;
     if ($('toReq')) $('toReq').onclick = () => { S.tab = 'req'; render(); };
     $('toList').onclick = () => { S.tab = 'list'; render(); };
+    $('toExp').onclick = () => drawExpense();
     return;
   }
   if (!jobs.length) {
@@ -704,7 +711,9 @@ function drawWork() {
   if (todays.length) h += '<h3 style="margin-top:4px">今日 ' + esc(jpDate(today())) + '</h3>';
   todays.forEach((j, i) => {
     const u = unitsOf(j).find(x => x[0] !== 'hour');
-    h += '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
+    if (canShare(j, today())) h += '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + '（日当を分ける）</b>' +
+        esc(j.siteName) + '<br><span class="muted">' + esc(payText(j, today())) + 'と合わせて日当1回分。押すと登録します</span></button>';
+    else h += '<button class="quick" data-quick="' + i + '" style="margin-bottom:8px"><b>今日：' + esc(j.short || j.siteName) + 'の応援 ' + u[1] + '</b>' +
         esc(j.siteName) + '<br>' + esc(yen(j[u[2]])) + '　<span class="muted">押すと登録します</span></button>';
   });
   if (todays.length) h += '<p class="muted" style="text-align:center;margin:6px 0 4px">半日・時間・別の日は下で入力</p>';
@@ -724,7 +733,9 @@ function drawWork() {
       '<p class="muted">責任者が完了を確認して承認すると、完了日の月の請求書に入ります。</p></div>';
   } else {
     const maxD = j.end < today() ? j.end : today();
-    const units = unitsOf(j);
+    const share = canShare(j, f.date);
+    const units = (share ? [['share', '日当を分ける', '']] : []).concat(unitsOf(j));
+    if (share && f.shareFor !== f.date) { f.unit = 'share'; f.shareFor = f.date; } // 別の現場で日当を登録した日は「日当を分ける」を先に選ぶ
     if (!units.some(u => u[0] === f.unit)) f.unit = units[0][0];
     const dd = doneOn(j, f.date);
     h += '<label>作業日</label><div class="seg">' +
@@ -733,18 +744,20 @@ function drawWork() {
       '<div style="height:8px"></div><input type="date" id="date" value="' + esc(f.date) + '" min="' + esc(j.start) + '" max="' + esc(maxD) + '">' +
       '<label>作業量</label><div class="seg">' + units.map(u => '<button data-unit="' + u[0] + '" class="' + (f.unit === u[0] ? 'on' : '') + '">' + u[1] + '</button>').join('') + '</div>' +
       (f.unit === 'hour' ? '<label>残業の時間数（8時間を超えた分）</label><input id="hours" type="number" inputmode="decimal" min="0.5" max="12" step="0.5" value="' + esc(f.hours) + '" placeholder="例：2">' : '') +
-      (f.unit === 'day' && j.rateHour > 0 ? '<label>残業（8時間を超えた分・あれば）</label><div class="row" style="align-items:center"><input id="ot" type="number" inputmode="decimal" min="0" max="12" step="0.5" value="' + esc(f.ot || '') + '" placeholder="0" style="flex:1"><span>時間</span></div>' : '') +
-      '<div class="between" style="margin-top:14px"><span>金額（税抜）</span><span class="big" id="amountView">' + esc(yen(workAmount(j, f))) + '</span></div>' +
+      (f.unit === 'share' ? '<div class="alert ok" style="margin:10px 0 0">' + esc(jpDate(f.date)) + 'は <b>' + esc(payText(j, f.date)) + '</b> で日当を登録しています。<br>同じ日に回った現場なので、<b>日当は1回分</b>のまま、現場の数で分けます（金額は増えません）。</div>' : '') +
+      ((f.unit === 'day' || f.unit === 'share') && j.rateHour > 0 ? '<label>残業（8時間を超えた分・あれば）</label><div class="row" style="align-items:center"><input id="ot" type="number" inputmode="decimal" min="0" max="12" step="0.5" value="' + esc(f.ot || '') + '" placeholder="0" style="flex:1"><span>時間</span></div>' : '') +
+      '<div class="between" style="margin-top:14px"><span>' + (f.unit === 'share' ? '追加の金額（税抜）' : '金額（税抜）') + '</span><span class="big" id="amountView">' + esc(yen(workAmount(j, f))) + '</span></div>' +
       '<label>作業内容（任意）</label><input id="note" maxlength="100" value="' + esc(f.note) + '" placeholder="例：2階給水配管">' +
       (dd ? '<div class="alert warn" style="margin:14px 0 0"><b>' + esc(jpDate(f.date)) + 'はこの現場で登録済みです（' + esc(dd.join('・')) + '）。</b><br>同じ日にもう1件登録するときだけ、下のボタンを押してください。</div>' : '') +
       '<div style="height:16px"></div>' + (dd ? '<button style="width:100%" id="save">同じ日にもう1件登録する</button>' : '<button class="primary" id="save">登録する</button>') + '</div>';
   }
-  h += '<p class="muted">一覧にない現場で作業した日は、職員へ連絡してください。</p>';
+  h += EXP_BTN + '<p class="muted">一覧にない現場で作業した日は、職員へ連絡してください。</p>';
   $('app').innerHTML = h;
   if ($('toReq')) $('toReq').onclick = () => { S.tab = 'req'; render(); };
+  $('toExp').onclick = () => drawExpense();
   document.querySelectorAll('[data-quick]').forEach(b => b.onclick = () => {
     const x = todays[Number(b.dataset.quick)], u = unitsOf(x).find(y => y[0] !== 'hour');
-    saveWork({ reqId: x.id, date: today(), unit: u[0] }, x);
+    saveWork({ reqId: x.id, date: today(), unit: canShare(x, today()) ? 'share' : u[0] }, x);
   });
   document.querySelectorAll('[data-job]').forEach(b => b.onclick = () => { const x = jobs.find(y => y.id === b.dataset.job); S.form = newWorkForm(x); drawWork(); });
   document.querySelectorAll('[data-date]').forEach(b => b.onclick = () => { f.date = b.dataset.date; drawWork(); });
@@ -757,14 +770,15 @@ function drawWork() {
     if (!f.date) return toast('日付を選んでください');
     if (f.date < j.start || f.date > j.end) return toast('依頼の期間（' + periodText(j) + '）の日付を選んでください');
     if (j.kind === '応援' && f.unit === 'hour' && !f.hours) return toast('残業の時間数を入力してください');
-    const ot = f.unit === 'day' && Number(f.ot) > 0 ? Number(f.ot) : 0;
+    const ot = (f.unit === 'day' || f.unit === 'share') && Number(f.ot) > 0 ? Number(f.ot) : 0;
     saveWork(Object.assign({ reqId: j.id, date: f.date, unit: f.unit, hours: f.hours, note: f.note }, ot ? { overtime: ot } : {}), j);
   };
 }
 // 押した瞬間に結果の画面へ切り替え、保存が終わったら「登録しました」に変える
 function saveWork(p, job, force) {
   if (S.acting) return toast('前の登録を保存中です。少しお待ちください');
-  const label = job.kind === '請負' ? '請負（完了報告）' : (({ day: '1日' + (p.overtime ? '＋残業' + p.overtime + '時間' : ''), half: '半日', hour: '残業' + (p.hours || '') + '時間' })[p.unit] || '');
+  const label = job.kind === '請負' ? '請負（完了報告）' : (({ day: '1日' + (p.overtime ? '＋残業' + p.overtime + '時間' : ''), half: '半日', hour: '残業' + (p.hours || '') + '時間',
+    share: '日当を分ける' + (p.overtime ? '＋残業' + p.overtime + '時間' : '') })[p.unit] || '');
   const formBackup = S.form;
   S.form = null;
   $('app').innerHTML = '<div class="alert saving" id="saveState" style="font-size:17px;background:var(--accent-weak);color:var(--ink)"><b>保存しています</b><br>' +
@@ -788,12 +802,21 @@ function saveWork(p, job, force) {
     }
     if (r.duplicate) {
       S.form = formBackup;
-      modal('<h3 style="margin-top:0;color:var(--ink)">同じ日・同じ現場の登録があります</h3><p>' + esc(r.message) + '</p>' +
+      if (r.sameDay) { // 別の現場で日当を登録済みの日に、もう一度日当を登録しようとした
+        modal('<h3 style="margin-top:0;color:var(--ink)">この日は別の現場で日当を登録しています</h3><p>' + esc(r.message) + '</p>' +
+          '<button id="mShare" class="primary">日当を分けて登録する（追加なし）</button><div style="height:8px"></div>' +
+          '<div class="row"><button id="mNo">やめる</button><button id="mYes" style="width:auto">日当を2回分で登録</button></div>');
+        $('mShare').onclick = () => { closeModal(); saveWork(Object.assign({}, p, { unit: 'share' }), job); };
+      } else modal('<h3 style="margin-top:0;color:var(--ink)">同じ日・同じ現場の登録があります</h3><p>' + esc(r.message) + '</p>' +
         '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">登録する</button></div>');
       $('mNo').onclick = () => { closeModal(); if (S.tab === 'work') (S.form ? drawWork() : pageWork()); };
       $('mYes').onclick = () => { closeModal(); saveWork(p, job, true); };
       if ($('saveState')) $('saveState').outerHTML = '<div class="alert warn" id="saveState"><b>まだ登録していません</b><br>確認の画面で選んでください。</div>';
       return;
+    }
+    if (S.sites && (r.unit === '1日' || r.unit === '半日') && r.kind === '応援') { // 日当を登録した日（次に別の現場を登録するとき「日当を分ける」を出す）
+      const pay = S.sites.pay || (S.sites.pay = {});
+      (pay[r.date] = pay[r.date] || []).push({ siteId: r.siteId, siteName: r.siteName, unit: r.unit, billed: false });
     }
     if (S.sites && S.sites.jobs) {
       const x = S.sites.jobs.find(y => y.id === r.reqId);
@@ -806,7 +829,8 @@ function saveWork(p, job, force) {
     }
     // 今月の実績の一覧にも、手元で1行足しておく（開いたときにすぐ出る）
     const lk = 'list:' + r.date.slice(0, 7), list = S.data[lk];
-    if (list) {
+    if (r.share) delete S.data[lk]; // 日当を分けると、前に登録した現場の金額も変わるので読み直す
+    else if (list) {
       const add = [{ id: r.id, date: r.date, siteId: r.siteId, siteName: r.siteName, kind: r.kind,
         unit: r.unit, hours: r.hours, amount: r.amount, note: p.note || '', status: '登録済', reason: '', invoiceId: '', reqId: r.reqId }];
       if (r.overtime) add.push({ id: r.overtime.id, date: r.date, siteId: r.siteId, siteName: r.siteName, kind: r.kind,
@@ -815,7 +839,8 @@ function saveWork(p, job, force) {
         .sort((a, b) => (a.status === '差戻' ? -1 : 0) - (b.status === '差戻' ? -1 : 0) || a.date.localeCompare(b.date));
       S.data[lk] = Object.assign({}, list, { rows: rows, total: list.total + r.amount + (r.overtime ? r.overtime.amount : 0) });
     }
-    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.kind === '請負' ? '請負（完了報告）' : r.unit === '時間' ? '残業' + r.hours + '時間' : r.unit + (r.overtime ? '＋残業' + r.overtime.hours + '時間' : '')) + ' ' + yen(r.amount + (r.overtime ? r.overtime.amount : 0));
+    const text = '【作業登録】' + jpDate(r.date) + ' ' + r.siteName + ' ' + (r.kind === '請負' ? '請負（完了報告）' : r.unit === '時間' ? '残業' + r.hours + '時間' : r.unit + (r.share ? '（' + r.share.length + '現場で分ける）' : '') + (r.overtime ? '＋残業' + r.overtime.hours + '時間' : '')) + ' ' +
+      (r.share ? '日当は1回分のまま' + (r.overtime ? '・残業 ' + yen(r.overtime.amount) : '') : yen(r.amount + (r.overtime ? r.overtime.amount : 0)));
     if ($('saveState')) {
       $('saveState').outerHTML = '<div class="alert ok" id="saveState" style="font-size:17px"><b>登録しました ✓</b><br>' + esc(text.replace('【作業登録】', '')) + '</div>';
       if ($('close')) { $('close').disabled = false; $('close').textContent = '閉じる'; $('close').onclick = () => liff.closeWindow(); }
@@ -826,6 +851,89 @@ function saveWork(p, job, force) {
       try { await liff.sendMessages([{ type: 'text', text: text }]); } catch (e) { console.warn('sendMessages', e); }
     }
   });
+}
+
+/* ===== 一人親方：立替経費（交通費・駐車場代・高速代）と領収書の写真 ===== */
+const EXP_BTN = '<button style="width:100%" id="toExp">🧾 交通費・駐車場代・高速代を入れる</button>';
+const EXP_KINDS = ['駐車場代', '高速代', '交通費', 'その他'];
+/** 写真を小さくする（長い辺 1600px・JPEG）。送る量を減らし、電波が弱くても送れるように */
+function shrinkImage(file, max, quality) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('写真を読み込めませんでした'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('写真を読み込めませんでした。別の写真で試してください'));
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', quality));
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+function drawExpense() {
+  S.view = 'expense'; S.touched = true;
+  const jobs = (S.sites && S.sites.jobs || []).filter(j => j.start <= today());
+  if (!jobs.length) { toast('確定した依頼がありません'); return; }
+  const e = S.exp && jobs.some(j => j.id === S.exp.reqId) ? S.exp : (S.exp = { reqId: (jobs.find(j => inRange(j, today())) || jobs[0]).id, date: '', kind: '', amount: '', note: '', photo: '' });
+  const j = jobs.find(x => x.id === e.reqId);
+  if (!e.date || !inRange(j, e.date) || e.date > today()) e.date = inRange(j, today()) ? today() : (j.end < today() ? j.end : j.start);
+  const maxD = j.end < today() ? j.end : today();
+  let h = '<h2>交通費・駐車場代・高速代</h2><p class="muted" style="margin-top:0">立て替えたお金です。日当とは別に、<b>消費税なし</b>で請求書に足します。事務が確認します。</p><div class="card">' +
+    '<label>現場</label>' + jobs.map(x => '<button class="persona' + (x.id === j.id ? ' on' : '') + '" data-ejob="' + esc(x.id) + '" style="' + (x.id === j.id ? 'border:2px solid var(--accent);background:var(--accent-weak)' : '') + '"><b>' + esc(x.siteName) + '</b><small>' + esc(periodText(x)) + '</small></button>').join('') +
+    '<label for="edate">日付</label><input type="date" id="edate" value="' + esc(e.date) + '" min="' + esc(j.start) + '" max="' + esc(maxD) + '">' +
+    '<label>種類</label><div class="chips">' + EXP_KINDS.map(k => '<button data-ekind="' + k + '" class="chip ' + (e.kind === k ? 'on' : '') + '">' + k + '</button>').join('') + '</div>' +
+    '<label for="eamount">金額（円・領収書の金額）</label><input id="eamount" class="amount" type="number" inputmode="numeric" min="1" max="200000" value="' + esc(e.amount) + '" placeholder="例：1800">' +
+    '<label>領収書の写真</label>' +
+    (e.photo ? '<img src="' + e.photo + '" alt="領収書" style="width:100%;max-height:320px;object-fit:contain;border-radius:8px;border:1px solid var(--line,#ddd)"><div style="height:6px"></div><button class="chip" id="ephotoDel">写真を撮り直す</button>'
+      : '<label class="chip" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📷 写真を撮る・選ぶ<input id="ephoto" type="file" accept="image/*" style="display:none"></label><p class="help">領収書が無いもの（電車代など）は写真なしでも登録できます。</p>') +
+    '<label for="enote">メモ（任意）</label><input id="enote" maxlength="100" value="' + esc(e.note) + '" placeholder="例：〇〇駅前のコインパーキング">' +
+    '<div style="height:16px"></div><button class="primary" id="esave">登録する</button></div>' +
+    '<button style="width:100%" id="eback">戻る</button>';
+  $('app').innerHTML = h; window.scrollTo(0, 0);
+  document.querySelectorAll('[data-ejob]').forEach(b => b.onclick = () => { e.reqId = b.dataset.ejob; drawExpense(); });
+  $('edate').onchange = (x) => { e.date = x.target.value; };
+  document.querySelectorAll('[data-ekind]').forEach(b => b.onclick = () => { e.kind = b.dataset.ekind; document.querySelectorAll('[data-ekind]').forEach(y => y.classList.toggle('on', y === b)); });
+  $('eamount').oninput = (x) => { e.amount = x.target.value; };
+  $('enote').oninput = (x) => { e.note = x.target.value; };
+  if ($('ephoto')) $('ephoto').onchange = async (x) => {
+    const file = x.target.files && x.target.files[0]; if (!file) return;
+    busy(1);
+    try { e.photo = await shrinkImage(file, 1600, 0.7); drawExpense(); } catch (err) { toast(err.message || String(err)); } finally { busy(-1); }
+  };
+  if ($('ephotoDel')) $('ephotoDel').onclick = () => { e.photo = ''; drawExpense(); };
+  $('eback').onclick = () => { S.exp = null; pageWork(); };
+  $('esave').onclick = () => {
+    if (!e.kind) return toast('種類を選んでください');
+    if (!(Number(e.amount) > 0)) return toast('金額を入力してください');
+    if (!e.date || e.date < j.start || e.date > maxD) return toast('日付を選んでください');
+    const btn = $('esave'); btn.disabled = true; btn.textContent = e.photo ? '送っています（写真つき）…' : '送っています…';
+    act(async () => {
+      try {
+        const r = await api('addExpense', { reqId: e.reqId, date: e.date, kind: e.kind, amount: Number(e.amount), note: e.note, photo: e.photo || '' });
+        S.exp = null; delete S.data['list:' + r.date.slice(0, 7)];
+        $('app').innerHTML = '<div class="alert ok" style="font-size:17px"><b>登録しました ✓</b><br>' + esc(jpDate(r.date) + ' ' + r.siteName + ' ' + r.unit + ' ' + yen(r.amount)) +
+          (r.receipt ? '（写真あり）' : '') + '</div><button class="primary" id="eagain">続けて入れる</button><div style="height:8px"></div>' +
+          '<button style="width:100%" id="toWork">作業登録に戻る</button>';
+        $('eagain').onclick = () => drawExpense();
+        $('toWork').onclick = () => pageWork();
+        window.scrollTo(0, 0);
+      } catch (err) { if ($('esave')) { btn.disabled = false; btn.textContent = '登録する'; } throw err; }
+    });
+  };
+}
+/** 領収書の写真を見る（本人と事務だけ。端末には残さない） */
+function showReceipt(id) {
+  modal('<p class="muted" style="margin-top:0">読み込み中…</p>');
+  api('receipt', { id: id }).then(r => {
+    if (!document.querySelector('.modal')) return;
+    modal('<img src="' + r.src + '" alt="領収書" style="width:100%;max-height:70vh;object-fit:contain"><div style="height:8px"></div><button id="mNo" style="width:100%">閉じる</button>');
+    $('mNo').onclick = closeModal;
+  }).catch(e => { closeModal(); toast(e.message || String(e)); });
 }
 
 /* ===== 一人親方：届いた依頼 ===== */
@@ -914,6 +1022,10 @@ function drawSreq(d) {
   const run = (action, params, msg) => act(async () => {
     try {
       const r = await api(action, Object.assign({ filter: st.filter }, params));
+      if (r.busy) { // 同じ日に別の現場で確定している人がいる（取り合いの注意）。確かめてから確定する
+        if (S.view === key) drawSreq(S.data[key] || d);
+        return busyAsk(r.message, () => run(action, Object.assign({}, params, { force: true }), msg));
+      }
       S.data[key] = r; if (S.view === key) drawSreq(r); toast(typeof msg === 'function' ? msg(r) : msg);
     } catch (e) { if (S.view === key) drawSreq(S.data[key] || d); throw e; }
   });
@@ -929,6 +1041,13 @@ function drawSreq(d) {
     $('mNo').onclick = closeModal;
     $('mYes').onclick = () => { closeModal(); run('cancelRequest', { id: b.dataset.cancel }, '取り消しました'); };
   });
+}
+/** 同じ日に別の現場で確定している人がいるときの確認 */
+function busyAsk(message, onYes) {
+  modal('<h3 style="margin-top:0;color:var(--ink)">⚠ 同じ日に別の現場の予定があります</h3><p style="white-space:pre-line">' + esc(message) + '</p>' +
+    '<div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">このまま確定する</button></div>');
+  $('mNo').onclick = closeModal;
+  $('mYes').onclick = () => { closeModal(); onYes(); };
 }
 function drawSreqForm(form) {
   const st = S.sreq;
@@ -976,19 +1095,24 @@ function drawSreqForm(form) {
   });
   $('qafter').onchange = (e) => { f.after = e.target.checked; if (f.after) f.mode = 'person'; drawSreqForm(form); };
   $('qback').onclick = () => { st.creating = false; pageSreq(); };
-  $('qsend').onclick = () => {
-    if (!f.siteId) return toast('現場を選んでください');
-    if (!targets.length && !(f.mode === 'person' && f.ids.length)) return toast('送り先を選んでください');
+  const send = (force) => {
     const btn = $('qsend'); btn.disabled = true; btn.textContent = '送っています…';
     act(async () => {
       try {
-        st.filter = f.after ? 'confirmed' : 'open';
-        const r = await api('createRequest', Object.assign({}, f, { filter: st.filter }));
+        const filter = f.after ? 'confirmed' : 'open';
+        const r = await api('createRequest', Object.assign({}, f, { filter: filter }, force ? { force: true } : {}));
+        if (r.busy) { btn.disabled = false; btn.textContent = '確定済みで作成する'; return busyAsk(r.message, () => send(true)); }
+        st.filter = filter;
         S.data['sreq:' + st.filter] = r; st.creating = false; st.f = null; st.open = r.createdId;
         toast(f.after ? '確定済みの依頼を作りました' : r.sent + '人に依頼を出しました');
         pageSreq();
       } catch (e) { if ($('qsend')) { btn.disabled = false; btn.textContent = f.after ? '確定済みで作成する' : '依頼を出す'; } throw e; }
     });
+  };
+  $('qsend').onclick = () => {
+    if (!f.siteId) return toast('現場を選んでください');
+    if (!targets.length && !(f.mode === 'person' && f.ids.length)) return toast('送り先を選んでください');
+    send(false);
   };
 }
 
@@ -1007,18 +1131,20 @@ function pageList() {
 function drawList(data, nav) {
   const key = 'list:' + nav.m;
   let h = '<h2>実績の一覧</h2>' + nav.html +
-    '<div class="card between"><span>合計（税抜・' + data.rows.length + '件）</span><span class="big">' + yen(data.total) + '</span></div>';
+    '<div class="card between"><span>合計（' + (data.rows.some(r => r.kind === '立替') ? '作業は税抜・立替を含む' : '税抜') + '・' + data.rows.length + '件）</span><span class="big">' + yen(data.total) + '</span></div>';
   const rej = data.rows.filter(r => r.status === '差戻').length;
   if (rej) h += '<div class="alert ng">差戻が' + rej + '件あります。理由を確認し、取り消して登録し直してください。</div>';
   h += '<div class="card">' + (data.rows.length ? data.rows.map(r =>
     '<div class="item"><div class="between"><b>' + esc(jpDate(r.date)) + '</b><span class="badge b-' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
     '<div>' + esc(r.siteName) + '</div><div class="between"><span class="muted">' + esc(unitText(r)) + (r.note ? '・' + esc(r.note) : '') + '</span><b>' + esc(yen(r.amount)) + '</b></div>' +
+    (r.receipt ? '<div style="margin-top:4px"><button class="chip" data-receipt="' + esc(r.id) + '">🧾 領収書の写真</button></div>' : '') +
     (r.status === '差戻' ? '<div class="alert ng" style="margin:8px 0 0">差戻理由：' + esc(r.reason) + '</div>' : '') +
     ((r.status === '登録済' || r.status === '差戻') ? '<div style="text-align:right;margin-top:6px"><button class="chip" data-cancel="' + esc(r.id) + '">取り消す</button></div>' : '') +
     '</div>').join('') : '<p class="muted">この月の登録はありません。</p>') + '</div>' +
     '<p class="muted">承認前の実績は取り消して登録し直せます。承認済みの修正は事務へ連絡してください。</p>';
   $('app').innerHTML = h;
   nav.bind();
+  document.querySelectorAll('[data-receipt]').forEach(b => b.onclick = () => showReceipt(b.dataset.receipt));
   document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
     const r = data.rows.find(x => x.id === b.dataset.cancel);
     modal('<p style="margin-top:0">' + esc(jpDate(r.date) + ' ' + r.siteName + ' ' + unitText(r)) + ' を取り消しますか？</p>' +
@@ -1034,7 +1160,10 @@ function drawList(data, nav) {
           const d = await api('cancelWork', { id: r.id, month: nav.m });
           S.data[key] = d; if (S.view === key) drawList(d, nav); toast('取り消しました');
           // 作業登録の画面の「登録済み」表示からも外す
-          const job = S.sites && S.sites.jobs && S.sites.jobs.find(x => x.id === r.reqId);
+          if (S.sites && S.sites.pay && S.sites.pay[r.date] && (r.unit === '1日' || r.unit === '半日') && r.kind === '応援') {
+            const pl = S.sites.pay[r.date], i = pl.findIndex(x => x.siteId === r.siteId); if (i >= 0) pl.splice(i, 1);
+          }
+          const job = r.kind === '立替' ? null : S.sites && S.sites.jobs && S.sites.jobs.find(x => x.id === r.reqId);
           if (job && job.days && job.days[r.date]) { job.days[r.date].pop(); if (!job.days[r.date].length) delete job.days[r.date]; if (job.kind === '請負') job.done = false; }
         } catch (e) { S.data[key] = prev; if (S.view === key) drawList(prev, nav); throw e; }
       });
@@ -1052,6 +1181,7 @@ function drawInvoice(d, nav) {
   const invs = d.invoices || [];
   const siteTable = (x) => '<table>' + x.bySite.map(s => '<tr><td>' + esc(s.siteName) + '<div class="muted">' + (s.days ? s.days + '日' : '') + '（' + s.count + '件）</div></td><td class="r">' + esc(yen(s.amount)) + '</td></tr>').join('') +
     '<tr><td>小計（税抜）</td><td class="r">' + esc(yen(x.subtotal)) + '</td></tr><tr><td>消費税</td><td class="r">' + esc(yen(x.tax)) + '</td></tr>' +
+    (x.expense ? '<tr><td>立替金（交通費など・税なし）</td><td class="r">' + esc(yen(x.expense)) + '</td></tr>' : '') +
     '<tr><td><b>ご請求金額</b></td><td class="r big">' + esc(yen(x.total)) + '</td></tr></table>';
   let h = '<h2>請求書</h2>' + nav.html;
   // 提出済みの請求書（追加の請求書があれば複数）
@@ -1183,12 +1313,14 @@ function drawApprove(d) {
     const [date, site] = k.split('|');
     h += '<div class="card"><div class="between"><b>' + esc(jpDate(date)) + '</b><span class="muted">' + groups[k].length + '人</span></div><div>' + esc(site) + '</div>' +
       groups[k].map(r => '<label class="check" style="color:var(--ink);margin:0"><input type="checkbox" data-id="' + esc(r.id) + '" checked>' +
-        '<span style="flex:1"><b>' + esc(r.name) + '</b>　' + esc(unitText(r)) + (r.note ? '<br><span class="muted">' + esc(r.note) + '</span>' : '') + '</span>' +
+        '<span style="flex:1"><b>' + esc(r.name) + '</b>　' + esc(unitText(r)) + (r.note ? '<br><span class="muted">' + esc(r.note) + '</span>' : '') +
+        (r.kind === '立替' ? '<br>' + (r.receipt ? '<button class="chip" data-receipt="' + esc(r.id) + '" style="margin-top:4px">🧾 領収書を見る</button>' : '<span class="muted">（領収書の写真なし）</span>') : '') + '</span>' +
         (d.showAmount ? '<span>' + esc(yen(r.amount)) + '</span>' : '') + '</label>').join('') + '</div>';
   });
   h += '<button class="primary" id="ok">チェックしたものをまとめて承認</button><div style="height:8px"></div>' +
     '<button style="width:100%;color:var(--ng)" id="ng">チェックを外したものを差戻</button>';
   $('app').innerHTML = h;
+  document.querySelectorAll('[data-receipt]').forEach(b => b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); showReceipt(b.dataset.receipt); });
   const ids = (checked) => Array.from(document.querySelectorAll('[data-id]')).filter(c => c.checked === checked).map(c => c.dataset.id);
   // 押した瞬間に一覧から消し、結果はあとで反映する（失敗したら元に戻す）
   const decide = (action, sel, extra, doneMsg) => {
@@ -1253,14 +1385,39 @@ function crewOn(d, siteId, date) {
   return out;
 }
 function crewHtml(d, f) {
-  const list = f.siteId ? crewOn(d, f.siteId, f.date) : [];
-  if (!list.length) return '';
+  if (!f.siteId || (d.office && f.siteId === d.office.id)) return '';
+  const list = crewOn(d, f.siteId, f.date);
   const off = f.crewOff || {};
-  return '<label>一人親方（依頼で確定した人・自動）</label><div class="chips">' +
+  // 依頼を出していないのに来た人（急な応援）。提出すると、その日の依頼が「確定」でできる
+  const extra = (f.extra || []).map(id => (d.oyakata || []).find(o => o.id === id)).filter(o => o && !list.some(c => c.id === o.id));
+  let h = '<label>一人親方' + (list.length ? '（依頼で確定した人・自動）' : '') + '</label>';
+  if (list.length) h += '<div class="chips">' +
     list.map(o => '<button class="chip ' + (off[o.id] ? '' : 'on') + '" data-crew="' + esc(o.id) + '" aria-pressed="' + (off[o.id] ? 'false' : 'true') + '">' + (off[o.id] ? '' : '✓ ') + esc(o.name) + '</button>').join('') +
     '</div><p class="help">来なかった人だけ押して外してください。</p>';
+  if (extra.length) h += '<div class="chips">' + extra.map(o => '<button class="chip on" data-xdel="' + esc(o.id) + '" aria-label="' + esc(o.name) + 'を外す">＋ ' + esc(o.name) + '　✕</button>').join('') + '</div>' +
+    '<p class="help">依頼なしで追加した人です。提出すると、この日の応援が「確定」になり、本人が作業を登録できます。</p>';
+  if ((d.oyakata || []).length) h += '<button class="chip" id="xadd" style="margin-top:6px">＋ 依頼していない一人親方を追加</button>';
+  return h;
 }
-function bindCrew(f) {
+function pickExtra(d, f) {
+  const list = crewOn(d, f.siteId, f.date);
+  const cand = (d.oyakata || []).filter(o => !list.some(c => c.id === o.id));
+  if (!cand.length) return toast('追加できる一人親方がいません');
+  const cur = f.extra || [];
+  modal('<h3 style="margin-top:0;color:var(--ink)">依頼していない一人親方を追加</h3><p class="muted" style="margin-top:0">急に応援に来てもらった人を選んでください。提出すると、この日の応援が「確定」になり、本人に知らせます（単価は本人のいつもの単価）。</p>' +
+    cand.map(o => '<label class="check" style="color:var(--ink);margin:0"><input type="checkbox" data-xpick="' + esc(o.id) + '"' + (cur.indexOf(o.id) >= 0 ? ' checked' : '') + '><span style="flex:1">' + esc(o.name) + '</span></label>').join('') +
+    '<div style="height:12px"></div><div class="row"><button id="mNo">やめる</button><button id="mYes" class="primary" style="width:auto">追加する</button></div>');
+  $('mNo').onclick = closeModal;
+  $('mYes').onclick = () => {
+    f.extra = Array.from(document.querySelectorAll('[data-xpick]')).filter(c => c.checked).map(c => c.dataset.xpick);
+    closeModal(); $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f, d);
+  };
+}
+function bindCrew(f, d) {
+  if (d && $('xadd')) $('xadd').onclick = () => pickExtra(d, f);
+  document.querySelectorAll('[data-xdel]').forEach(b => b.onclick = () => {
+    f.extra = (f.extra || []).filter(x => x !== b.dataset.xdel); $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f, d);
+  });
   document.querySelectorAll('[data-crew]').forEach(b => b.onclick = () => {
     const off = f.crewOff || (f.crewOff = {}), id = b.dataset.crew;
     if (off[id]) delete off[id]; else off[id] = 1;
@@ -1334,8 +1491,8 @@ function drawReport() {
   };
   document.querySelectorAll('[data-rdate]').forEach(b => b.onclick = () => { f.date = b.dataset.rdate; drawReport(); });
   $('rdate').onchange = (e) => { f.date = e.target.value; drawReport(); };
-  $('rsite').onchange = (e) => { f.siteId = e.target.value; $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f); };
-  bindCrew(f);
+  $('rsite').onchange = (e) => { f.siteId = e.target.value; $('rcrew').innerHTML = crewHtml(d, f); bindCrew(f, d); };
+  bindCrew(f, d);
   if ($('rfilter')) $('rfilter').oninput = (e) => { f.filter = e.target.value; const pos = e.target.selectionStart; drawReport(); $('rfilter').focus(); $('rfilter').setSelectionRange(pos, pos); };
   const item = (el) => d.items[Number(el.dataset.i)];
   // 選ぶ部品は画面を描き直さずに見た目だけ切り替える（スクロール位置がずれないように）
@@ -1383,7 +1540,8 @@ function drawReport() {
     const miss = d.items.find(it => it.required && (a[it.id] === undefined || (it.type === '時間' && (!a[it.id].start || !a[it.id].end))));
     if (miss) return toast('「' + miss.label + '」を入力してください');
     const siteName = (places.find(s => s.id === f.siteId) || {}).name || '';
-    saveReport({ date: f.date, siteId: f.siteId, answers: JSON.parse(JSON.stringify(a)), oyakata: crewOn(d, f.siteId, f.date).filter(o => !(f.crewOff || {})[o.id]).map(o => o.id) }, siteName);
+    saveReport({ date: f.date, siteId: f.siteId, answers: JSON.parse(JSON.stringify(a)), oyakata: crewOn(d, f.siteId, f.date).filter(o => !(f.crewOff || {})[o.id]).map(o => o.id),
+      extra: (d.office && f.siteId === d.office.id) ? [] : (f.extra || []).filter(id => !crewOn(d, f.siteId, f.date).some(c => c.id === id)) }, siteName);
   };
 }
 function saveReport(p, siteName) {
@@ -1411,6 +1569,7 @@ function saveReport(p, siteName) {
     }
     // 「前回の内容」と最近の現場を手元で更新（次の入力がすぐ出る）
     if (S.report) {
+      if (r.added) S.report.crew = (S.report.crew || []).concat([{ siteId: r.added.siteId, start: r.added.start, end: r.added.end, oyakata: r.added.oyakata }]);
       S.report = Object.assign({}, S.report, { last: { siteId: r.siteId, siteName: r.siteName, answers: r.answers },
         recent: [r.siteId].concat((S.report.recent || []).filter(x => x !== r.siteId)).slice(0, 5) });
       S.data.rform = S.report;
@@ -1477,6 +1636,47 @@ function drawReportList(d, nav) {
 }
 
 /* ===== 事務：管理 ===== */
+/* ===== 一人親方の予定カレンダー（職員みんな。依頼で確定した予定から作る。見るだけ） ===== */
+function pageCal() {
+  const from = S.calFrom || today();
+  view('cal:' + from, 'calendar', { from: from }, drawCal);
+}
+const addDays = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return ymd(x); };
+function drawCal(d) {
+  const wd = (x) => '日月火水木金土'[new Date(x + 'T00:00:00').getDay()];
+  const col = (x) => { const w = new Date(x + 'T00:00:00').getDay(); return w === 0 ? 'color:#c0392b' : w === 6 ? 'color:#1e63c6' : ''; };
+  const free = (x) => d.rows.filter(r => !(r.days[x] || []).length);
+  let h = '<h2>一人親方の予定</h2>' +
+    '<div class="between" style="margin-bottom:10px"><button id="cPrev">◀ 前の週</button><button id="cToday"' + (d.from === d.today ? ' disabled' : '') + '>今日</button><button id="cNext">次の週 ▶</button></div>' +
+    '<p class="muted" style="margin:0 0 8px">依頼で確定した現場が出ます。空いているマスは<span style="color:var(--ok,#178a55);font-weight:700">空き</span>です。日付を押すと、その日に空いている人が出ます。</p>';
+  if (!d.rows.length) h += '<div class="card"><p class="muted">有効な一人親方がいません。</p></div>';
+  else {
+    h += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line,#ddd);border-radius:10px"><table style="border-collapse:separate;border-spacing:0;font-size:13px;min-width:100%">' +
+      '<thead><tr><th style="position:sticky;left:0;z-index:2;background:var(--card,#fff);padding:6px 8px;text-align:left;border-bottom:1px solid var(--line,#ddd);min-width:84px">名前</th>' +
+      d.days.map(x => '<th data-cday="' + x + '" style="cursor:pointer;padding:6px 4px;min-width:64px;border-bottom:1px solid var(--line,#ddd);' + (x === d.today ? 'background:var(--accent-weak);' : '') + col(x) + '">' +
+        Number(x.slice(5, 7)) + '/' + Number(x.slice(8, 10)) + '<br>' + wd(x) + '<br><small class="muted">空き' + free(x).length + '</small></th>').join('') + '</tr></thead><tbody>' +
+      d.rows.map(r => '<tr><th style="position:sticky;left:0;z-index:1;background:var(--card,#fff);padding:6px 8px;text-align:left;border-bottom:1px solid var(--line,#eee);font-weight:600">' + esc(r.name) + '</th>' +
+        d.days.map(x => { const p = r.days[x] || [];
+          return '<td style="padding:4px;border-bottom:1px solid var(--line,#eee);vertical-align:top;' + (x === d.today ? 'background:var(--accent-weak);' : '') + '">' +
+            (p.length ? p.map(v => '<div style="background:' + (v.kind === '請負' ? '#efe7fb' : '#e6effb') + ';color:#223;border-radius:6px;padding:2px 4px;margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">' + esc(v.site) + '</div>').join('')
+              : '<span style="color:var(--ok,#178a55);font-weight:700">空き</span>') + '</td>'; }).join('') + '</tr>').join('') +
+      '</tbody></table></div>';
+  }
+  $('app').innerHTML = h;
+  const go = (f) => { S.calFrom = f; pageCal(); };
+  $('cPrev').onclick = () => go(addDays(d.from, -7));
+  $('cNext').onclick = () => go(addDays(d.from, 7));
+  $('cToday').onclick = () => go(d.today);
+  document.querySelectorAll('[data-cday]').forEach(b => b.onclick = () => {
+    const x = b.dataset.cday, f = free(x), busyRows = d.rows.filter(r => (r.days[x] || []).length);
+    modal('<h3 style="margin-top:0;color:var(--ink)">' + esc(jpDate(x)) + '</h3><b>空いている人（' + f.length + '人）</b>' +
+      (f.length ? '<div class="chips" style="margin:6px 0 12px">' + f.map(r => '<span class="chip on">' + esc(r.name) + '</span>').join('') + '</div>' : '<p class="muted">いません</p>') +
+      (busyRows.length ? '<b>予定がある人</b>' + busyRows.map(r => '<div class="between" style="padding:4px 0;border-bottom:1px solid var(--line,#eee)"><span>' + esc(r.name) + '</span><span class="muted">' + esc(r.days[x].map(v => v.site).join('・')) + '</span></div>').join('') : '') +
+      '<div style="height:12px"></div><button id="mNo" style="width:100%">閉じる</button>');
+    $('mNo').onclick = closeModal;
+  });
+}
+
 function pageAdmin() {
   const nav = monthNav('admin', addMonth(thisMonth(), -1), pageAdmin);
   view('admin:' + nav.m, 'adminSummary', { month: nav.m }, d => drawAdmin(d, nav));
